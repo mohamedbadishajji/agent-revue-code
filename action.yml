@@ -1,0 +1,47 @@
+name: 'Agent IA de Revue de Code'
+description: 'Analyse automatiquement les Pull Requests GitHub et poste des commentaires de revue via AWS Bedrock'
+author: 'Smartovate LTD'
+
+branding:
+  icon: 'code'
+  color: 'blue'
+
+inputs:
+  aws_access_key_id:
+    description: 'AWS Access Key ID pour AWS Bedrock'
+    required: true
+  aws_secret_access_key:
+    description: 'AWS Secret Access Key pour AWS Bedrock'
+    required: true
+  aws_region:
+    description: 'Region AWS'
+    required: false
+    default: 'eu-north-1'
+  aws_bedrock_model_id:
+    description: 'Model ID AWS Bedrock'
+    required: false
+    default: 'eu.anthropic.claude-sonnet-4-6'
+  github_app_id:
+    description: 'GitHub App ID'
+    required: true
+  github_private_key:
+    description: 'GitHub App Private Key'
+    required: true
+  github_installation_id:
+    description: 'GitHub App Installation ID'
+    required: true
+  include_tests:
+    description: 'Inclure les fichiers de test dans l analyse'
+    required: false
+    default: 'false'
+
+outputs:
+  total_issues:
+    description: 'Nombre total de problèmes détectés'
+  review_action:
+    description: 'Action de review effectuée (APPROVE/REQUEST_CHANGES/COMMENT)'
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  entrypoint: '/entrypoint.sh'
