@@ -5,6 +5,7 @@ from app.diff_parser import extract_diff, parse_diff, chunk_diff
 from app.filters import filter_files
 from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT
 from app.llm_client import invoke_llm
+from app.validator import validate_issues
 
 load_dotenv()
 
@@ -48,11 +49,16 @@ def analyze_file(file_data: dict, pr_title: str) -> dict:
 
         result = clean_json_response(response)
 
+        # Ajouter le contexte à chaque issue
         for issue in result.get("issues", []):
             issue["file_path"] = file_path
             issue["language"] = language
 
-        print(f"   {len(result.get('issues', []))} probleme(s) detecte(s)")
+        # Validation post-LLM — filtrer les hallucinations (REVUE-21)
+        validated_issues = validate_issues(result.get("issues", []), patch)
+        result["issues"] = validated_issues
+
+        print(f"   {len(validated_issues)} probleme(s) valide(s) apres validation")
         return result
 
     except Exception as e:
