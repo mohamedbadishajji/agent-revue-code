@@ -71,32 +71,46 @@ def post_inline_comment(repo_name: str, pr_number: int, issue: dict, patch: str)
     """
     Poste un commentaire inline sur une ligne spécifique de la PR
     REVUE-12/39 : Publication des commentaires inline
-    Bug 3 : Mapping des numéros de ligne
+    REVUE-20/47 : Mapping de ligne incorrect — version améliorée
     """
     try:
+        from app.validator import validate_line_mapping
+
         client = get_github_client(INSTALLATION_ID)
         repo = client.get_repo(repo_name)
         pr = repo.get_pull(pr_number)
 
-        # Convertir le numéro de ligne en position patch (Bug 3)
-        line_number = issue.get("line")
-        position = get_patch_position(patch, line_number)
+        # Vérifier si l'issue doit être postée en commentaire global
+        if issue.get("use_global_comment"):
+            return post_file_comment(repo_name, pr_number, issue)
 
-        if position is None:
-            print(f"   ⚠️ Ligne {line_number} introuvable dans le patch — commentaire global")
+        # Utiliser la position du patch si déjà calculée
+        line_number = issue.get("line")
+        patch_position = issue.get("patch_position")
+
+        # Si pas de position → calculer
+        if not patch_position:
+            patch_position = get_patch_position(patch, line_number)
+
+        if patch_position is None:
+            print(f"   ⚠️ Ligne {line_number} introuvable → commentaire global")
             return post_file_comment(repo_name, pr_number, issue)
 
         # Formater le commentaire
         comment_body = format_comment(issue)
 
+        # Ajouter note si ligne corrigée
+        if issue.get("line_mapping_corrected"):
+            comment_body += f"\n\n> **Note :** Commentaire repositionné à la ligne {line_number} (ligne originale non disponible)"
+
         # Poster le commentaire inline
         commit = list(pr.get_commits())[-1]
         pr.create_review_comment(
-        body=comment_body,
-        commit=commit,
-        path=issue.get("file_path"),
-        line=issue.get("line"),
-        side="RIGHT"
+            body=comment_body,
+            commit=commit,
+            path=issue.get("file_path"),
+            line=line_number,
+            side="RIGHT"
         )
 
         print(f"   ✅ Commentaire posté — {issue['file_path']} ligne {line_number}")
@@ -104,7 +118,8 @@ def post_inline_comment(repo_name: str, pr_number: int, issue: dict, patch: str)
 
     except Exception as e:
         print(f"   ❌ Erreur posting commentaire : {str(e)}")
-        return False
+        # Fallback → commentaire global
+        return post_file_comment(repo_name, pr_number, issue)
 
 
 def post_file_comment(repo_name: str, pr_number: int, issue: dict) -> bool:

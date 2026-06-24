@@ -131,3 +131,69 @@ def validate_issues(issues: list, patch: str) -> list:
         print(f"   🚫 {rejected_count} hallucination(s) filtrée(s)")
 
     return valid_issues
+
+def get_added_lines(patch: str) -> dict:
+    """
+    Extrait uniquement les lignes AJOUTÉES du patch avec leur position
+    Bug 3 : seules les lignes ajoutées peuvent recevoir des commentaires inline
+    """
+    added_lines = {}
+    current_line = 0
+    patch_position = 0
+
+    for line in patch.splitlines():
+        patch_position += 1
+
+        if line.startswith("@@"):
+            match = re.search(r'\+(\d+)', line)
+            if match:
+                current_line = int(match.group(1)) - 1
+
+        elif line.startswith("+") and not line.startswith("+++"):
+            current_line += 1
+            added_lines[current_line] = patch_position
+
+        elif not line.startswith("-"):
+            current_line += 1
+
+    return added_lines
+
+
+def validate_line_mapping(issues: list, patch: str) -> list:
+    """
+    Valide et corrige le mapping des numéros de ligne
+    REVUE-20/47 : Mapping de ligne incorrect dans les commentaires inline
+    """
+    if not issues:
+        return []
+
+    added_lines = get_added_lines(patch)
+    validated = []
+
+    print(f"\n🔍 Validation du mapping des lignes...")
+    print(f"   Lignes ajoutées disponibles : {list(added_lines.keys())}")
+
+    for issue in issues:
+        line = issue.get("line")
+
+        if line in added_lines:
+            # La ligne est valide — on ajoute la position du patch
+            issue["patch_position"] = added_lines[line]
+            validated.append(issue)
+            print(f"   ✅ Ligne {line} → position patch {added_lines[line]}")
+        else:
+            # La ligne n'est pas une ligne ajoutée
+            # Chercher la ligne ajoutée la plus proche
+            if added_lines:
+                closest_line = min(added_lines.keys(), key=lambda x: abs(x - line))
+                issue["patch_position"] = added_lines[closest_line]
+                issue["line"] = closest_line
+                issue["line_mapping_corrected"] = True
+                validated.append(issue)
+                print(f"   ⚠️ Ligne {line} invalide → corrigée vers ligne {closest_line}")
+            else:
+                print(f"   ❌ Ligne {line} impossible à mapper — commentaire global")
+                issue["use_global_comment"] = True
+                validated.append(issue)
+
+    return validated
