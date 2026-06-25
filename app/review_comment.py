@@ -3,6 +3,7 @@ import re
 from dotenv import load_dotenv
 from app.github_client import get_github_client
 from app.rate_limiter import retry_with_backoff, check_rate_limit, batch_post_comments
+from app.duplicate_checker import filter_duplicate_issues
 
 load_dotenv()
 
@@ -216,6 +217,7 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
     """
     Poste tous les commentaires et le résumé global
     REVUE-22 : Avec rate limiting et regroupement
+    REVUE-23/50 : Avec vérification des doublons
     """
     print(f"\n📝 Publication des commentaires sur la PR #{pr_number}...\n")
 
@@ -228,8 +230,17 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
 
     # Vérifier le rate limit avant de commencer
     from app.github_client import get_github_client
+    from app.duplicate_checker import filter_duplicate_issues
     client = get_github_client(INSTALLATION_ID)
     check_rate_limit(client)
+
+    # Filtrer les doublons (REVUE-23/50)
+    issues = filter_duplicate_issues(issues, repo_name, pr_number)
+
+    if not issues:
+        print("✅ Aucune nouvelle issue à poster — tout était déjà commenté")
+        post_global_summary(repo_name, pr_number, summary, total_issues, issues)
+        return
 
     # Préparer les commentaires
     comments_to_post = []
@@ -251,7 +262,7 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
         delay=0.5
     )
 
-    print(f"\n✅ {posted}/{total_issues} commentaires postés")
+    print(f"\n✅ {posted}/{len(issues)} commentaires postés")
 
     # Poster le résumé global
     post_global_summary(repo_name, pr_number, summary, total_issues, issues)
