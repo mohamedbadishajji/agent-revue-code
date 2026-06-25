@@ -2,6 +2,7 @@ import os
 import re
 from dotenv import load_dotenv
 from app.github_client import get_github_client
+from app.rate_limiter import retry_with_backoff, check_rate_limit, batch_post_comments
 
 load_dotenv()
 
@@ -214,7 +215,7 @@ def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issu
 def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, diff_files: list) -> None:
     """
     Poste tous les commentaires et le résumé global
-    Point d'entrée principal pour REVUE-12/39
+    REVUE-22 : Avec rate limiting et regroupement
     """
     print(f"\n📝 Publication des commentaires sur la PR #{pr_number}...\n")
 
@@ -225,19 +226,30 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
     # Créer un dictionnaire patch par fichier
     patch_by_file = {f["file_path"]: f["patch"] for f in diff_files if "patch" in f}
 
-    # Poster les commentaires inline
-    posted = 0
+    # Vérifier le rate limit avant de commencer
+    from app.github_client import get_github_client
+    client = get_github_client(INSTALLATION_ID)
+    check_rate_limit(client)
+
+    # Préparer les commentaires
+    comments_to_post = []
     for issue in issues:
         file_path = issue.get("file_path")
         patch = patch_by_file.get(file_path, "")
+        comments_to_post.append({
+            "repo_name": repo_name,
+            "pr_number": pr_number,
+            "issue": issue,
+            "patch": patch
+        })
 
-        if patch:
-            success = post_inline_comment(repo_name, pr_number, issue, patch)
-        else:
-            success = post_file_comment(repo_name, pr_number, issue)
-
-        if success:
-            posted += 1
+    # Poster par lots avec rate limiting
+    posted = batch_post_comments(
+        post_func=post_inline_comment,
+        comments=comments_to_post,
+        batch_size=5,
+        delay=0.5
+    )
 
     print(f"\n✅ {posted}/{total_issues} commentaires postés")
 
