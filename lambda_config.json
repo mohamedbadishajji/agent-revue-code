@@ -1,0 +1,16 @@
+{
+  "FunctionName": "agent-revue-code",
+  "Runtime": "python3.11",
+  "Handler": "lambda_handler.handler",
+  "Description": "Agent IA de Revue de Code — Smartovate LTD",
+  "Timeout": 300,
+  "MemorySize": 512,
+  "Environment": {
+    "Variables": {
+      "GITHUB_APP_ID": "3943060",
+      "GITHUB_INSTALLATION_ID": "137524436",
+      "AWS_BEDROCK_MODEL_ID": "arn:aws:bedrock:eu-north-1:014498640042:inference-profile/eu.anthropic.claude-sonnet-4-6",
+      "AWS_REGION": "eu-north-1"
+    }
+  }
+}
