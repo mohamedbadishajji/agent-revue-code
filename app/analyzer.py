@@ -6,6 +6,7 @@ from app.filters import filter_files
 from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT, build_language_specific_prompt
 from app.llm_client import invoke_llm
 from app.validator import validate_issues
+from app.scoring import calculate_severity_score, generate_score_report
 
 load_dotenv()
 
@@ -122,12 +123,20 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     else:
         global_summary = "Aucun probleme detecte dans cette PR."
 
+    # Étape 7 : Calcul du score de sévérité (REVUE-36)
+    print(f"\n7 Calcul du score de severite...")
+    scoring = calculate_severity_score(all_issues)
+    score_report = generate_score_report(all_issues, repo_name, pr_number)
+
     print(f"\nAnalyse terminee — {len(all_issues)} probleme(s) au total")
+    print(f"Score de risque : {scoring['score']}/100 — {scoring['risk_level']['emoji']} {scoring['risk_level']['level']}")
 
     return {
         "pr_number": pr_number,
         "repo_name": repo_name,
         "total_issues": len(all_issues),
         "issues": all_issues,
-        "summary": global_summary
+        "summary": global_summary,
+        "scoring": scoring,
+        "score_report": score_report
     }
