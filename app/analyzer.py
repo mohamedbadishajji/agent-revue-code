@@ -3,7 +3,7 @@ import os
 from dotenv import load_dotenv
 from app.diff_parser import extract_diff, parse_diff, chunk_diff
 from app.filters import filter_files
-from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT
+from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT, build_language_specific_prompt
 from app.llm_client import invoke_llm
 from app.validator import validate_issues
 
@@ -34,11 +34,11 @@ def analyze_file(file_data: dict, pr_title: str) -> dict:
 
     print(f"   Analyse de {file_path} ({language})...")
 
-    prompt = build_code_review_prompt(
-        file_path=file_path,
-        language=language,
-        patch=patch
-    )
+    prompt = build_language_specific_prompt(
+    file_path=file_path,
+    language=language,
+    patch=patch
+)
 
     try:
         response = invoke_llm(

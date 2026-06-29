@@ -30,7 +30,19 @@ def get_language(file_path: str) -> str:
         ".js": "javascript",
         ".ts": "typescript",
         ".jsx": "javascript",
-        ".tsx": "typescript"
+        ".tsx": "typescript",
+        ".java": "java",
+        ".go": "go",
+        ".php": "php",
+        ".rb": "ruby",
+        ".cs": "csharp",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".cc": "cpp",
+        ".h": "c",
+        ".hpp": "cpp"
     }
     return languages.get(ext, "unknown")
 
