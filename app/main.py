@@ -3,6 +3,8 @@ from dotenv import load_dotenv
 import hmac
 import hashlib
 import os
+from fastapi.responses import HTMLResponse
+from app.dashboard import get_all_reports, calculate_dashboard_stats, generate_dashboard_html
 
 load_dotenv()
 
@@ -45,3 +47,13 @@ async def webhook(request: Request):
             return {"message": f"PR #{pr_number} en cours d'analyse"}
 
     return {"message": "Événement ignoré"}
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """
+    Dashboard de métriques de revue de code
+    REVUE-46 : Développer le dashboard de métriques de revue
+    """
+    reports = get_all_reports()
+    stats = calculate_dashboard_stats(reports)
+    html = generate_dashboard_html(stats)
+    return html

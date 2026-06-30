@@ -1,0 +1,88 @@
+{
+  "repo_name": "mohamedbadishajji/test_agent_revue",
+  "pr_number": 4,
+  "pr_title": "Document security issues in buggy_code.py",
+  "analyzed_at": "2026-06-30T13:41:23.764019",
+  "score": 0,
+  "risk_level": "CRITICAL RISK",
+  "total_issues": 6,
+  "file_metrics": {
+    "buggy_code.py": {
+      "total_issues": 6,
+      "critical": 4,
+      "high": 2,
+      "medium": 0,
+      "low": 0
+    }
+  },
+  "type_metrics": {
+    "security": 4,
+    "bug": 2
+  },
+  "worst_file": {
+    "path": "buggy_code.py",
+    "issue_count": 6
+  },
+  "issues": [
+    {
+      "line": 4,
+      "severity": "critical",
+      "type": "security",
+      "description": "Mot de passe hardcodé en clair dans le code source",
+      "suggestion": "Utiliser une variable d'environnement pour stocker le mot de passe",
+      "fix_code": "password = os.environ.get('APP_PASSWORD')",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    },
+    {
+      "line": 5,
+      "severity": "critical",
+      "type": "security",
+      "description": "Clé secrète hardcodée en clair dans le code source",
+      "suggestion": "Utiliser une variable d'environnement pour stocker la clé secrète",
+      "fix_code": "SECRET_KEY = os.environ.get('SECRET_KEY')",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    },
+    {
+      "line": 6,
+      "severity": "critical",
+      "type": "security",
+      "description": "Token API hardcodé en clair dans le code source (pattern GitHub token détecté)",
+      "suggestion": "Utiliser une variable d'environnement pour stocker le token API",
+      "fix_code": "API_TOKEN = os.environ.get('API_TOKEN')",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    },
+    {
+      "line": 10,
+      "severity": "high",
+      "type": "bug",
+      "description": "Division sans vérification du diviseur, risque de ZeroDivisionError si b vaut 0",
+      "suggestion": "Vérifier que b n'est pas zéro avant d'effectuer la division",
+      "fix_code": "    if b == 0:\n        raise ValueError('Le diviseur ne peut pas être zéro')\n    return a / b",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    },
+    {
+      "line": 14,
+      "severity": "high",
+      "type": "bug",
+      "description": "Accès à un index de liste sans vérification, risque d'IndexError si l'index est hors limites",
+      "suggestion": "Vérifier que l'index est dans les limites de la liste avant d'y accéder",
+      "fix_code": "    if index < 0 or index >= len(my_list):\n        raise IndexError(f'Index {index} hors limites pour une liste de taille {len(my_list)}')\n    return my_list[index]",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    },
+    {
+      "line": 18,
+      "severity": "critical",
+      "type": "security",
+      "description": "Injection SQL par concaténation directe de l'entrée utilisateur dans la requête SQL, permet à un attaquant de manipuler la requête",
+      "suggestion": "Utiliser des requêtes paramétrées pour éviter les injections SQL",
+      "fix_code": "    query = ('SELECT * FROM users WHERE username = %s', (username,))\n    return query",
+      "file_path": "buggy_code.py",
+      "language": "python"
+    }
+  ]
+}
