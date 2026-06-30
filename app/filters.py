@@ -44,6 +44,24 @@ TEST_PATTERNS = [
     "/test/"
 ]
 
+# Correspondance extension -> langage (REVUE-45)
+EXTENSION_TO_LANGUAGE = {
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".jsx": "javascript",
+    ".tsx": "typescript",
+    ".java": "java",
+    ".go": "go",
+    ".php": "php",
+    ".rb": "ruby",
+    ".cs": "csharp",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".c": "c",
+    ".cpp": "cpp"
+}
+
 
 def is_test_file(file_path: str) -> bool:
     """Vérifie si un fichier est un fichier de test"""
@@ -57,9 +75,10 @@ def is_auto_generated(file_path: str) -> bool:
     return any(pattern in file_lower for pattern in IGNORED_PATTERNS)
 
 
-def is_relevant(file_path: str, include_tests: bool = False) -> bool:
+def is_relevant(file_path: str, include_tests: bool = False, languages_enabled: list = None) -> bool:
     """
     Vérifie si un fichier est pertinent pour l'analyse
+    REVUE-45 : Respecte la liste languages_enabled de la config du repo
     Retourne True si le fichier doit être analysé
     """
     # Vérifier l'extension
@@ -81,20 +100,27 @@ def is_relevant(file_path: str, include_tests: bool = False) -> bool:
     if ext not in SUPPORTED_EXTENSIONS:
         return False
 
+    # Filtrer selon la config languages_enabled du repo (REVUE-45)
+    if languages_enabled:
+        file_language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
+        if file_language not in languages_enabled:
+            return False
+
     return True
 
 
-def filter_files(diff_files: list, include_tests: bool = False) -> list:
+def filter_files(diff_files: list, include_tests: bool = False, languages_enabled: list = None) -> list:
     """
     Filtre les fichiers non pertinents
     Critère US 2.1 : Les fichiers non pertinents sont filtrés
+    REVUE-45 : Filtre aussi selon les langages autorisés par la config repo
     """
     relevant_files = []
     ignored_files = []
 
     for file_data in diff_files:
         file_path = file_data["file_path"]
-        if is_relevant(file_path, include_tests):
+        if is_relevant(file_path, include_tests, languages_enabled):
             relevant_files.append(file_data)
         else:
             ignored_files.append(file_path)

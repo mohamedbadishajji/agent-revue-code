@@ -91,7 +91,11 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     # Étape 3 : Filtrer les fichiers (avec config personnalisée)
     print("3 Filtrage des fichiers...")
     use_include_tests = config["include_tests"] or include_tests
-    filtered_files = filter_files(parsed_files, include_tests=use_include_tests)
+    filtered_files = filter_files(
+    parsed_files,
+    include_tests=use_include_tests,
+    languages_enabled=config.get("languages_enabled")
+)
 
     # Filtrer les chemins ignorés selon la config (REVUE-44)
     filtered_files = [
