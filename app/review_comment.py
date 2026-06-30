@@ -40,7 +40,7 @@ def get_patch_position(patch: str, target_line: int) -> int:
 def format_comment(issue: dict) -> str:
     """
     Formate un commentaire avec la syntaxe GitHub Markdown
-    Utilise la fonctionnalité suggestion de GitHub
+    REVUE-41 : Inclut la suggestion de code GitHub native si disponible
     """
     severity_emoji = {
         "critical": "🔴",
@@ -54,14 +54,26 @@ def format_comment(issue: dict) -> str:
     issue_type = issue.get("type", "unknown")
     description = issue.get("description", "")
     suggestion = issue.get("suggestion", "")
+    fix_code = issue.get("fix_code", "")
 
     comment = f"""## {emoji} Agent IA — [{severity}] {issue_type}
 
 **Problème détecté :**
 {description}
 
-**Suggestion de correction :**
-{suggestion}
+**Explication :**
+{suggestion}"""
+
+    # REVUE-41 : Ajouter le bloc GitHub Suggestion si le code de fix existe
+    if fix_code and fix_code.strip():
+        comment += f"""
+
+**Correction proposée (cliquez sur "Apply suggestion") :**
+````suggestion
+{fix_code}
+```"""
+
+    comment += """
 
 ---
 *Commentaire généré automatiquement par l'Agent IA de Revue de Code — Smartovate LTD*"""

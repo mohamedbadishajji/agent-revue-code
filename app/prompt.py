@@ -12,6 +12,7 @@ REGLES :
 3. Signale les erreurs de logique claires
 4. Ne commente PAS le style ou le formatage
 5. Sois direct et precis
+6. Pour CHAQUE probleme, fournis le CODE EXACT de correction (pas juste une explication)
 
 NIVEAUX DE SEVERITE :
 - critical : faille de securite (mot de passe, cle API hardcodee)
@@ -20,7 +21,13 @@ NIVEAUX DE SEVERITE :
 - low : mauvaise pratique
 
 FORMAT DE REPONSE (JSON uniquement, sans backticks, sans texte avant ou apres) :
-{"issues": [{"line": <numero>, "severity": "<critical|high|medium|low>", "type": "<bug|security|performance|logic>", "description": "<description>", "suggestion": "<suggestion>"}], "summary": "<resume>"}
+{"issues": [{"line": <numero>, "severity": "<critical|high|medium|low>", "type": "<bug|security|performance|logic>", "description": "<description>", "suggestion": "<explication textuelle>", "fix_code": "<code exact de remplacement de cette ligne uniquement, sans markdown>"}], "summary": "<resume>"}
+
+IMPORTANT pour fix_code :
+- Doit etre le code EXACT qui remplace la ligne problematique
+- Une seule ligne de code (ou plusieurs lignes separees par \\n si necessaire)
+- Pas d explication, juste le code pret a etre applique
+- Si impossible de generer un code de correction precis, laisser fix_code vide ""
 
 Si aucun probleme : {"issues": [], "summary": "Code correct, aucun probleme detecte."}"""
 
@@ -299,15 +306,24 @@ REGLES GENERALES :
 }
 
 
-def build_language_specific_prompt(file_path: str, language: str, patch: str) -> str:
+def build_language_specific_prompt(file_path: str, language: str, patch: str, custom_instructions: str = "") -> str:
     """
     Construit un prompt optimise selon le langage de programmation
     REVUE-35 : Analyse multi-langages
+    REVUE-45 : Inclut les instructions personnalisees du repository
     """
     language_rules = LANGUAGE_SPECIFIC_RULES.get(
         language,
         LANGUAGE_SPECIFIC_RULES["unknown"]
     )
+
+    custom_section = ""
+    if custom_instructions and custom_instructions.strip():
+        custom_section = f"""
+
+INSTRUCTIONS SPECIFIQUES DU PROJET (priorite haute) :
+{custom_instructions}
+"""
 
     return f"""Analyse ce diff de code {language} en appliquant les regles specifiques a ce langage.
 
@@ -315,9 +331,9 @@ Fichier : {file_path}
 Langage : {language}
 
 {language_rules}
-
+{custom_section}
 Diff :
 {patch}
 
 Reponds UNIQUEMENT en JSON selon le format demande. Sans backticks.
-Format : {{"issues": [{{"line": <numero>, "severity": "<critical|high|medium|low>", "type": "<bug|security|performance|logic>", "description": "<description>", "suggestion": "<suggestion>"}}], "summary": "<resume>"}}"""
+Format : {{"issues": [{{"line": <numero>, "severity": "<critical|high|medium|low>", "type": "<bug|security|performance|logic>", "description": "<description>", "suggestion": "<suggestion>", "fix_code": "<code exact>"}}], "summary": "<resume>"}}"""

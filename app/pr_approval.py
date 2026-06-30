@@ -7,10 +7,12 @@ load_dotenv()
 INSTALLATION_ID = int(os.getenv("GITHUB_INSTALLATION_ID"))
 
 
-def determine_review_action(issues: list) -> str:
+def determine_review_action(issues: list, severity_threshold: str = "high") -> str:
     """
     Détermine l'action de review selon les problèmes détectés
-    REVUE-15/40 : Approbation/rejet automatique des PRs
+    REVUE-15 : Logique générale (sévérité)
+    REVUE-40 : Logique stricte axée sécurité — approuve si pas de faille critique
+    REVUE-45 : Utilise le severity_threshold configuré par le repository
 
     IMPORTANT : Ne fait JAMAIS d'auto-merge (exclu du cahier des charges)
     Seulement soumet une review (approve/request changes/comment)
@@ -18,13 +20,32 @@ def determine_review_action(issues: list) -> str:
     if not issues:
         return "APPROVE"
 
-    has_critical = any(issue.get("severity") == "critical" for issue in issues)
-    has_high = any(issue.get("severity") == "high" for issue in issues)
+    # Ordre de sévérité pour comparaison
+    severity_order = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+    threshold_level = severity_order.get(severity_threshold, 3)
 
-    if has_critical or has_high:
+    # REVUE-40 : Bloquer immédiatement si UNE SEULE faille de sécurité
+    # atteint ou dépasse le seuil configuré
+    has_security_issue = any(
+        issue.get("type") == "security" and
+        severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
+        for issue in issues
+    )
+
+    if has_security_issue:
         return "REQUEST_CHANGES"
 
-    # Seulement medium/low → juste un commentaire, pas de blocage
+    # Bugs non liés à la sécurité qui atteignent le seuil configuré
+    has_blocking_bug = any(
+        issue.get("type") != "security" and
+        severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
+        for issue in issues
+    )
+
+    if has_blocking_bug:
+        return "REQUEST_CHANGES"
+
+    # Sous le seuil → commentaire informatif seulement
     return "COMMENT"
 
 
@@ -55,17 +76,25 @@ Ces problèmes ne bloquent pas la PR mais nous recommandons de les corriger pour
 def submit_review(repo_name: str, pr_number: int, issues: list) -> str:
     """
     Soumet une review automatique sur la PR
+    REVUE-45 : Utilise la configuration personnalisée du repo
     NE FAIT JAMAIS D'AUTO-MERGE — uniquement approve/request_changes/comment
     """
     try:
+        from app.config_loader import load_repo_config
+
         client = get_github_client(INSTALLATION_ID)
         repo = client.get_repo(repo_name)
         pr = repo.get_pull(pr_number)
 
-        action = determine_review_action(issues)
+        # Charger la configuration personnalisée (REVUE-45)
+        config = load_repo_config(repo_name)
+        severity_threshold = config.get("severity_threshold", "high")
+
+        action = determine_review_action(issues, severity_threshold)
         message = build_review_message(action, issues)
 
         print(f"\n🔍 Soumission de la review automatique...")
+        print(f"   Seuil configuré : {severity_threshold}")
         print(f"   Action déterminée : {action}")
 
         pr.create_review(
