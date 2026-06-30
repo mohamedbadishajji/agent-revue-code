@@ -74,6 +74,19 @@ def is_auto_generated(file_path: str) -> bool:
     file_lower = file_path.lower()
     return any(pattern in file_lower for pattern in IGNORED_PATTERNS)
 
+def exceeds_max_size(file_data: dict, max_file_size_kb: int = None) -> bool:
+    """
+    Vérifie si la taille du patch dépasse la limite configurée
+    REVUE-45 : Respecte max_file_size_kb de la config du repo
+    """
+    if not max_file_size_kb:
+        return False
+
+    patch = file_data.get("patch", "")
+    size_kb = len(patch.encode("utf-8")) / 1024
+
+    return size_kb > max_file_size_kb
+
 
 def is_relevant(file_path: str, include_tests: bool = False, languages_enabled: list = None) -> bool:
     """
@@ -109,21 +122,27 @@ def is_relevant(file_path: str, include_tests: bool = False, languages_enabled: 
     return True
 
 
-def filter_files(diff_files: list, include_tests: bool = False, languages_enabled: list = None) -> list:
+def filter_files(diff_files: list, include_tests: bool = False, languages_enabled: list = None, max_file_size_kb: int = None) -> list:
     """
     Filtre les fichiers non pertinents
     Critère US 2.1 : Les fichiers non pertinents sont filtrés
-    REVUE-45 : Filtre aussi selon les langages autorisés par la config repo
+    REVUE-45 : Filtre selon les langages autorisés et la taille max configurée
     """
     relevant_files = []
     ignored_files = []
 
     for file_data in diff_files:
         file_path = file_data["file_path"]
-        if is_relevant(file_path, include_tests, languages_enabled):
-            relevant_files.append(file_data)
-        else:
-            ignored_files.append(file_path)
+
+        if not is_relevant(file_path, include_tests, languages_enabled):
+            ignored_files.append(f"{file_path} (non pertinent)")
+            continue
+
+        if exceeds_max_size(file_data, max_file_size_kb):
+            ignored_files.append(f"{file_path} (taille > {max_file_size_kb}KB)")
+            continue
+
+        relevant_files.append(file_data)
 
     # Résumé du filtrage
     print(f"✅ Fichiers pertinents : {len(relevant_files)}")

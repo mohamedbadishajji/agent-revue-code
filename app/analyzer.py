@@ -94,7 +94,8 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     filtered_files = filter_files(
     parsed_files,
     include_tests=use_include_tests,
-    languages_enabled=config.get("languages_enabled")
+    languages_enabled=config.get("languages_enabled"),
+    max_file_size_kb=config.get("max_file_size_kb")
 )
 
     # Filtrer les chemins ignorés selon la config (REVUE-44)
