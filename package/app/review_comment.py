@@ -40,7 +40,7 @@ def get_patch_position(patch: str, target_line: int) -> int:
 def format_comment(issue: dict) -> str:
     """
     Formate un commentaire avec la syntaxe GitHub Markdown
-    Utilise la fonctionnalité suggestion de GitHub
+    REVUE-41 : Inclut la suggestion de code GitHub native si disponible
     """
     severity_emoji = {
         "critical": "🔴",
@@ -54,14 +54,26 @@ def format_comment(issue: dict) -> str:
     issue_type = issue.get("type", "unknown")
     description = issue.get("description", "")
     suggestion = issue.get("suggestion", "")
+    fix_code = issue.get("fix_code", "")
 
     comment = f"""## {emoji} Agent IA — [{severity}] {issue_type}
 
 **Problème détecté :**
 {description}
 
-**Suggestion de correction :**
-{suggestion}
+**Explication :**
+{suggestion}"""
+
+    # REVUE-41 : Ajouter le bloc GitHub Suggestion si le code de fix existe
+    if fix_code and fix_code.strip():
+        comment += f"""
+
+**Correction proposée (cliquez sur "Apply suggestion") :**
+````suggestion
+{fix_code}
+```"""
+
+    comment += """
 
 ---
 *Commentaire généré automatiquement par l'Agent IA de Revue de Code — Smartovate LTD*"""
@@ -146,10 +158,11 @@ def post_file_comment(repo_name: str, pr_number: int, issue: dict) -> bool:
         return False
 
 
-def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issues: int, issues: list = None) -> bool:
+def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issues: int, issues: list = None, scoring: dict = None, score_report: str = None) -> bool:
     """
     Poste le résumé global de l'analyse sur la PR
-    REVUE-13 : Résumé global de la revue (version enrichie)
+    REVUE-13 : Résumé global enrichi
+    REVUE-36 : Avec score de sévérité
     """
     try:
         client = get_github_client(INSTALLATION_ID)
@@ -189,6 +202,15 @@ def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issu
 
         files_count = len(files_analyzed) if files_analyzed else "N/A"
 
+        # Section score de sévérité
+        score_section = ""
+        if scoring and score_report:
+            score_section = f"""
+---
+
+{score_report}
+"""
+
         global_comment = f"""# {status_emoji} Revue de Code Automatique — {status}
 
 **Analysé par :** Agent IA de Revue de Code — Smartovate LTD
@@ -200,12 +222,12 @@ def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issu
 ## Résumé
 
 {summary}
-
+{score_section}
 ---
 *Cette revue a été générée automatiquement par AWS Bedrock (Claude Sonnet 4.6). Elle ne remplace pas une revue humaine.*"""
 
         pr.create_issue_comment(global_comment)
-        print(f"✅ Résumé global enrichi posté sur la PR #{pr_number}")
+        print(f"✅ Résumé global avec score posté sur la PR #{pr_number}")
         return True
 
     except Exception as e:
@@ -218,12 +240,15 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
     Poste tous les commentaires et le résumé global
     REVUE-22 : Avec rate limiting et regroupement
     REVUE-23/50 : Avec vérification des doublons
+    REVUE-36 : Avec score de sévérité
     """
     print(f"\n📝 Publication des commentaires sur la PR #{pr_number}...\n")
 
     issues = analysis_result.get("issues", [])
     summary = analysis_result.get("summary", "")
     total_issues = analysis_result.get("total_issues", 0)
+    scoring = analysis_result.get("scoring")
+    score_report = analysis_result.get("score_report")
 
     # Créer un dictionnaire patch par fichier
     patch_by_file = {f["file_path"]: f["patch"] for f in diff_files if "patch" in f}
@@ -239,7 +264,15 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
 
     if not issues:
         print("✅ Aucune nouvelle issue à poster — tout était déjà commenté")
-        post_global_summary(repo_name, pr_number, summary, total_issues, issues)
+        post_global_summary(
+            repo_name=repo_name,
+            pr_number=pr_number,
+            summary=summary,
+            total_issues=total_issues,
+            issues=issues,
+            scoring=scoring,
+            score_report=score_report
+        )
         return
 
     # Préparer les commentaires
@@ -264,5 +297,13 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
 
     print(f"\n✅ {posted}/{len(issues)} commentaires postés")
 
-    # Poster le résumé global
-    post_global_summary(repo_name, pr_number, summary, total_issues, issues)
+    # Poster le résumé global avec score
+    post_global_summary(
+        repo_name=repo_name,
+        pr_number=pr_number,
+        summary=summary,
+        total_issues=total_issues,
+        issues=issues,
+        scoring=scoring,
+        score_report=score_report
+    )

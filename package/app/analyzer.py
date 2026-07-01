@@ -3,9 +3,10 @@ import os
 from dotenv import load_dotenv
 from app.diff_parser import extract_diff, parse_diff, chunk_diff
 from app.filters import filter_files
-from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT
+from app.prompt import build_code_review_prompt, build_summary_prompt, SYSTEM_PROMPT, build_language_specific_prompt
 from app.llm_client import invoke_llm
 from app.validator import validate_issues
+from app.config_loader import load_repo_config, is_path_ignored
 
 load_dotenv()
 
@@ -23,10 +24,11 @@ def clean_json_response(response: str) -> dict:
     return json.loads(clean.strip())
 
 
-def analyze_file(file_data: dict, pr_title: str) -> dict:
+def analyze_file(file_data: dict, pr_title: str, custom_instructions: str = "") -> dict:
     """
     Analyse un fichier avec le LLM
     REVUE-8 : Analyse par fichier avec gestion du contexte
+    REVUE-45 : Utilise les instructions personnalisees du repo
     """
     file_path = file_data["file_path"]
     language = file_data["language"]
@@ -34,10 +36,11 @@ def analyze_file(file_data: dict, pr_title: str) -> dict:
 
     print(f"   Analyse de {file_path} ({language})...")
 
-    prompt = build_code_review_prompt(
+    prompt = build_language_specific_prompt(
         file_path=file_path,
         language=language,
-        patch=patch
+        patch=patch,
+        custom_instructions=custom_instructions
     )
 
     try:
@@ -49,12 +52,10 @@ def analyze_file(file_data: dict, pr_title: str) -> dict:
 
         result = clean_json_response(response)
 
-        # Ajouter le contexte à chaque issue
         for issue in result.get("issues", []):
             issue["file_path"] = file_path
             issue["language"] = language
 
-        # Validation post-LLM — filtrer les hallucinations (REVUE-21)
         validated_issues = validate_issues(result.get("issues", []), patch)
         result["issues"] = validated_issues
 
@@ -65,13 +66,19 @@ def analyze_file(file_data: dict, pr_title: str) -> dict:
         print(f"   Erreur analyse {file_path} : {str(e)}")
         return {"issues": [], "summary": f"Erreur lors de l'analyse : {str(e)}"}
 
-
 def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests: bool = False) -> dict:
     """
     Analyse complète d'une PR
     Orchestre toutes les étapes de l'analyse
+    REVUE-44 : Utilise la configuration personnalisée du repo
     """
+    from app.scoring import calculate_severity_score, generate_score_report
+
     print(f"\n Debut de l'analyse de la PR #{pr_number}\n")
+
+    # Étape 0 : Charger la configuration personnalisée du repo (REVUE-44)
+    print("0 Chargement de la configuration du repository...")
+    config = load_repo_config(repo_name)
 
     # Étape 1 : Extraire le diff
     print("1 Extraction du diff...")
@@ -81,9 +88,22 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     print("2 Parsing du diff...")
     parsed_files = parse_diff(diff_files)
 
-    # Étape 3 : Filtrer les fichiers
+    # Étape 3 : Filtrer les fichiers (avec config personnalisée)
     print("3 Filtrage des fichiers...")
-    filtered_files = filter_files(parsed_files, include_tests=include_tests)
+    use_include_tests = config["include_tests"] or include_tests
+    filtered_files = filter_files(
+    parsed_files,
+    include_tests=use_include_tests,
+    languages_enabled=config.get("languages_enabled"),
+    max_file_size_kb=config.get("max_file_size_kb")
+)
+
+    # Filtrer les chemins ignorés selon la config (REVUE-44)
+    filtered_files = [
+        f for f in filtered_files
+        if not is_path_ignored(f["file_path"], config["ignored_paths"])
+    ]
+    print(f"   ✅ {len(filtered_files)} fichier(s) après filtrage config")
 
     if not filtered_files:
         print("Aucun fichier pertinent a analyser")
@@ -92,7 +112,9 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
             "repo_name": repo_name,
             "total_issues": 0,
             "issues": [],
-            "summary": "Aucun fichier de code a analyser."
+            "summary": "Aucun fichier de code a analyser.",
+            "scoring": calculate_severity_score([]),
+            "score_report": generate_score_report([], repo_name, pr_number)
         }
 
     # Étape 4 : Chunking si nécessaire
@@ -106,7 +128,7 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
 
     for chunk in chunks:
         for file_data in chunk:
-            result = analyze_file(file_data, pr_title)
+            result = analyze_file(file_data, pr_title, config.get("custom_instructions", ""))
             all_issues.extend(result.get("issues", []))
             if result.get("summary"):
                 all_summaries.append(result["summary"])
@@ -122,12 +144,20 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     else:
         global_summary = "Aucun probleme detecte dans cette PR."
 
+    # Étape 7 : Calcul du score de sévérité (REVUE-36)
+    print(f"\n7 Calcul du score de severite...")
+    scoring = calculate_severity_score(all_issues)
+    score_report = generate_score_report(all_issues, repo_name, pr_number)
+
     print(f"\nAnalyse terminee — {len(all_issues)} probleme(s) au total")
+    print(f"Score de risque : {scoring['score']}/100 — {scoring['risk_level']['emoji']} {scoring['risk_level']['level']}")
 
     return {
         "pr_number": pr_number,
         "repo_name": repo_name,
         "total_issues": len(all_issues),
         "issues": all_issues,
-        "summary": global_summary
+        "summary": global_summary,
+        "scoring": scoring,
+        "score_report": score_report
     }

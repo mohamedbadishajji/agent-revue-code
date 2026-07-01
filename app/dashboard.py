@@ -22,6 +22,47 @@ def get_all_reports() -> list:
     return reports
 
 
+def get_all_repos(reports: list) -> list:
+    """Retourne la liste triee des repos uniques presents dans les rapports"""
+    repos = sorted(set(r.get("repo_name", "unknown") for r in reports))
+    return repos
+
+
+def filter_reports_by_repo(reports: list, repo_name: str = None) -> list:
+    """Filtre les rapports pour ne garder que ceux d'un repo specifique"""
+    if not repo_name or repo_name == "all":
+        return reports
+    return [r for r in reports if r.get("repo_name") == repo_name]
+
+
+def get_pr_list(reports: list) -> list:
+    """
+    Construit la liste des PRs analysees, dedupliquee par (repo, pr_number)
+    en gardant l'analyse la plus recente pour chaque PR
+    """
+    latest_by_pr = {}
+    for r in reports:
+        key = (r.get("repo_name"), r.get("pr_number"))
+        existing = latest_by_pr.get(key)
+        if not existing or r.get("analyzed_at", "") > existing.get("analyzed_at", ""):
+            latest_by_pr[key] = r
+
+    pr_list = list(latest_by_pr.values())
+    pr_list.sort(key=lambda x: x.get("analyzed_at", ""), reverse=True)
+    return pr_list
+
+
+def get_report_by_pr(reports: list, pr_number: int, repo_name: str = None) -> dict:
+    """Recupere le rapport le plus recent pour une PR donnee"""
+    matching = [r for r in reports if r.get("pr_number") == pr_number]
+    if repo_name:
+        matching = [r for r in matching if r.get("repo_name") == repo_name]
+    if not matching:
+        return None
+    matching.sort(key=lambda x: x.get("analyzed_at", ""), reverse=True)
+    return matching[0]
+
+
 def calculate_time_saved(total_prs: int) -> dict:
     total_minutes = total_prs * ESTIMATED_TIME_PER_REVIEW_MINUTES
     hours = total_minutes // 60
@@ -44,22 +85,25 @@ def calculate_dashboard_stats(reports: list) -> dict:
             "critical_count": 0, "approved_count": 0
         }
 
-    total_prs = len(reports)
-    total_score = sum(r.get("score", 0) for r in reports)
-    average_score = round(total_score / total_prs, 1)
-    total_issues = sum(r.get("total_issues", 0) for r in reports)
+    # Utiliser la liste dedupliquee pour les stats (une PR = un point de donnee)
+    pr_list = get_pr_list(reports)
+
+    total_prs = len(pr_list)
+    total_score = sum(r.get("score", 0) for r in pr_list)
+    average_score = round(total_score / total_prs, 1) if total_prs else 0
+    total_issues = sum(r.get("total_issues", 0) for r in pr_list)
 
     score_distribution = defaultdict(int)
-    for r in reports:
+    for r in pr_list:
         score_distribution[r.get("risk_level", "UNKNOWN")] += 1
 
     type_distribution = defaultdict(int)
-    for r in reports:
+    for r in pr_list:
         for issue_type, count in r.get("type_metrics", {}).items():
             type_distribution[issue_type] += count
 
     file_issue_count = defaultdict(int)
-    for r in reports:
+    for r in pr_list:
         for file_path, metrics in r.get("file_metrics", {}).items():
             file_issue_count[file_path] += metrics.get("total_issues", 0)
 
@@ -67,7 +111,7 @@ def calculate_dashboard_stats(reports: list) -> dict:
 
     score_history = sorted(
         [{"pr_number": r.get("pr_number"), "score": r.get("score"), "date": r.get("analyzed_at", "")}
-         for r in reports],
+         for r in pr_list],
         key=lambda x: x["date"]
     )
 
@@ -89,41 +133,24 @@ def calculate_dashboard_stats(reports: list) -> dict:
     }
 
 
-def generate_dashboard_html(stats: dict) -> str:
-    score_labels = json.dumps([f"PR #{h['pr_number']}" for h in stats["score_history"]])
-    score_values = json.dumps([h["score"] for h in stats["score_history"]])
-    risk_labels = json.dumps(list(stats["score_distribution"].keys()))
-    risk_values = json.dumps(list(stats["score_distribution"].values()))
-    type_labels = json.dumps(list(stats["type_distribution"].keys()))
-    type_values = json.dumps(list(stats["type_distribution"].values()))
-
-    worst_files_rows = ""
-    max_count = max([c for _, c in stats["worst_files"]], default=1)
-    for file_path, count in stats["worst_files"]:
-        pct = int((count / max_count) * 100) if max_count else 0
-        worst_files_rows += f"""
-        <div class="file-row">
-          <div class="file-row-top">
-            <span class="file-name">{file_path}</span>
-            <span class="file-count">{count}</span>
-          </div>
-          <div class="file-bar-track"><div class="file-bar-fill" style="width:{pct}%"></div></div>
-        </div>"""
-    if not worst_files_rows:
-        worst_files_rows = '<div class="empty-state">Aucune donnée — lancez votre première analyse.</div>'
-
+def render_page_shell(title: str, body_content: str, extra_head: str = "") -> str:
+    """
+    Shell HTML commun (theme, fond anime, toggle jour/nuit) reutilise
+    par la vue dashboard et la vue detail PR
+    """
     now_str = datetime.now().strftime("%H:%M:%S")
 
-    html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent IA de Revue de Code — Smartovate LTD</title>
+<title>{title}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+{extra_head}
 <style>
   :root {{
     --bg: #06090c;
@@ -135,6 +162,7 @@ def generate_dashboard_html(stats: dict) -> str:
     --accent-rgb: 61,169,255;
     --amber: #ffb454;
     --red: #ff5c5c;
+    --green: #3fb950;
     --text: #d7e3df;
     --text-dim: #5e7269;
     --mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
@@ -153,6 +181,7 @@ def generate_dashboard_html(stats: dict) -> str:
     --accent-rgb: 18,103,214;
     --amber: #c97a16;
     --red: #d6394a;
+    --green: #1a8f4c;
     --text: #1c2733;
     --text-dim: #6b7a89;
     --panel-shadow: 0 4px 24px rgba(28,39,51,0.08);
@@ -180,10 +209,10 @@ def generate_dashboard_html(stats: dict) -> str:
     z-index: 0;
     pointer-events: none;
   }}
-  .topbar, .kpi-strip, .grid-2, .grid-3, footer {{
-    position: relative;
-    z-index: 1;
-  }}
+  .page {{ position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; }}
+
+  a {{ color: var(--accent); text-decoration: none; }}
+  a:hover {{ text-decoration: underline; }}
 
   /* ── Header ── */
   .topbar {{
@@ -216,7 +245,7 @@ def generate_dashboard_html(stats: dict) -> str:
     background-clip: text;
   }}
   .header-actions {{
-    display: flex; align-items: center; gap: 10px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   }}
   .status-pill {{
     display: flex; align-items: center; gap: 8px;
@@ -236,7 +265,7 @@ def generate_dashboard_html(stats: dict) -> str:
     0%, 100% {{ opacity: 1; transform: scale(1); }}
     50% {{ opacity: 0.4; transform: scale(0.78); }}
   }}
-  .theme-toggle {{
+  .theme-toggle, .repo-select {{
     display: flex; align-items: center; gap: 8px;
     font-family: var(--mono); font-size: 11px; color: var(--text-dim);
     border: 1px solid var(--grid-line);
@@ -250,6 +279,21 @@ def generate_dashboard_html(stats: dict) -> str:
   }}
   .theme-toggle:hover {{ border-color: var(--accent-dim); color: var(--accent); }}
   .theme-toggle svg {{ width: 14px; height: 14px; }}
+  .repo-select select {{
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
+  }}
+  .repo-select select option {{ background: var(--bg); color: var(--text); }}
+  .back-link {{
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 6px;
+  }}
+  .back-link:hover {{ color: var(--accent); }}
 
   /* ── KPI strip ── */
   .kpi-strip {{
@@ -307,6 +351,7 @@ def generate_dashboard_html(stats: dict) -> str:
     border-radius: 16px;
     padding: 20px 22px 16px;
     box-shadow: var(--panel-shadow);
+    margin-bottom: 16px;
   }}
   .panel-head {{
     display: flex; align-items: center; justify-content: space-between;
@@ -347,6 +392,57 @@ def generate_dashboard_html(stats: dict) -> str:
     text-align: center; padding: 30px 0;
   }}
 
+  /* ── PR table ── */
+  table.pr-table {{ width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; }}
+  table.pr-table th {{
+    text-align: left; padding: 10px 12px; color: var(--text-dim);
+    text-transform: uppercase; font-size: 10px; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--grid-line);
+  }}
+  table.pr-table td {{
+    padding: 12px; border-bottom: 1px solid var(--grid-line);
+    vertical-align: middle;
+  }}
+  table.pr-table tr:last-child td {{ border-bottom: none; }}
+  table.pr-table tr:hover td {{ background: rgba(var(--accent-rgb),0.05); }}
+  .badge {{
+    display: inline-block; padding: 3px 10px; border-radius: 100px;
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em;
+  }}
+  .badge.critical {{ background: rgba(255,92,92,0.15); color: var(--red); }}
+  .badge.high {{ background: rgba(255,138,61,0.15); color: #ff8a3d; }}
+  .badge.medium {{ background: rgba(255,180,84,0.15); color: var(--amber); }}
+  .badge.low {{ background: rgba(63,185,80,0.15); color: var(--green); }}
+  .badge.clean {{ background: rgba(61,169,255,0.15); color: var(--accent); }}
+  .view-btn {{
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    border: 1px solid var(--accent-dim); border-radius: 100px;
+    padding: 4px 12px; white-space: nowrap;
+  }}
+  .view-btn:hover {{ background: rgba(var(--accent-rgb),0.1); text-decoration: none; }}
+  .repo-tag {{ color: var(--text-dim); font-size: 11px; }}
+
+  /* ── Detail page ── */
+  .issue-card {{
+    background: rgba(var(--bg-panel-2),0.4);
+    border-left: 3px solid var(--grid-line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }}
+  .issue-card.critical {{ border-left-color: var(--red); }}
+  .issue-card.high {{ border-left-color: #ff8a3d; }}
+  .issue-card.medium {{ border-left-color: var(--amber); }}
+  .issue-card.low {{ border-left-color: var(--green); }}
+  .issue-head {{
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+    font-family: var(--mono); font-size: 11.5px;
+  }}
+  .issue-loc {{ color: var(--text-dim); }}
+  .issue-desc {{ font-size: 13.5px; margin-bottom: 6px; }}
+  .issue-fix {{ font-size: 12px; color: var(--text-dim); }}
+  .issue-fix b {{ color: var(--text); }}
+
   footer {{
     margin-top: 24px; text-align: center; font-family: var(--mono);
     font-size: 10.5px; color: var(--text-dim); letter-spacing: 0.04em;
@@ -355,83 +451,16 @@ def generate_dashboard_html(stats: dict) -> str:
   @media (max-width: 900px) {{
     .kpi-strip {{ grid-template-columns: repeat(2, 1fr); }}
     .grid-2, .grid-3 {{ grid-template-columns: 1fr; }}
+    table.pr-table {{ font-size: 11px; }}
   }}
 </style>
 </head>
 <body>
 <canvas id="bg-canvas"></canvas>
-
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">AI</div>
-      <div class="brand-text">
-        <h1>Agent IA de Revue de Code · Smartovate LTD</h1>
-      </div>
-    </div>
-    <div class="header-actions">
-      <div class="status-pill">
-        <span class="pulse-dot"></span>
-        LIVE · {now_str}
-      </div>
-      <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
-        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-        <span id="themeLabel">Mode nuit</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="kpi-strip">
-    <div class="kpi">
-      <div class="kpi-label">PRs Analysées</div>
-      <div class="kpi-value accent">{stats['total_prs']}</div>
-      <div class="kpi-sub">total surveillé</div>
-      <div class="kpi-spark"></div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Score Moyen</div>
-      <div class="kpi-value">{stats['average_score']}<span style="font-size:14px;color:var(--text-dim)">/100</span></div>
-      <div class="kpi-sub">qualité globale</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Issues Détectées</div>
-      <div class="kpi-value warn">{stats['total_issues']}</div>
-      <div class="kpi-sub">{stats['critical_count']} critiques</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Fichiers à Risque</div>
-      <div class="kpi-value">{len(stats['worst_files'])}</div>
-      <div class="kpi-sub">nécessitent attention</div>
-    </div>
-    <div class="kpi">
-      <div class="kpi-label">Temps Gagné</div>
-      <div class="kpi-value accent">{stats['time_saved']['formatted']}</div>
-      <div class="kpi-sub">vs revue manuelle</div>
-      <div class="kpi-spark"></div>
-    </div>
-  </div>
-
-  <div class="grid-2">
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">Évolution du score</div></div>
-      <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">Niveaux de risque</div></div>
-      <div class="chart-wrap"><canvas id="riskChart"></canvas></div>
-    </div>
-  </div>
-
-  <div class="grid-3">
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">Répartition par type</div></div>
-      <div class="chart-wrap" style="height:200px"><canvas id="typeChart"></canvas></div>
-    </div>
-    <div class="panel">
-      <div class="panel-head"><div class="panel-title">Fichiers les plus problématiques</div></div>
-      {worst_files_rows}
-    </div>
-  </div>
-
+<div class="page">
+{body_content}
+<footer>Agent IA de Revue de Code — Propulsé par AWS Bedrock (Claude Sonnet 4.6)</footer>
+</div>
 
 <script>
   // ── Theme toggle (dark / light) ──
@@ -441,16 +470,29 @@ def generate_dashboard_html(stats: dict) -> str:
   }};
   function applyTheme(theme) {{
     document.documentElement.setAttribute('data-theme', theme);
-    document.getElementById('themeIcon').innerHTML = theme === 'dark' ? ICONS.light : ICONS.dark;
-    document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Mode jour' : 'Mode nuit';
+    const iconEl = document.getElementById('themeIcon');
+    const labelEl = document.getElementById('themeLabel');
+    if (iconEl) iconEl.innerHTML = theme === 'dark' ? ICONS.light : ICONS.dark;
+    if (labelEl) labelEl.textContent = theme === 'dark' ? 'Mode jour' : 'Mode nuit';
     localStorage.setItem('dashboard-theme', theme);
   }}
   const savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
   applyTheme(savedTheme);
-  document.getElementById('themeToggle').addEventListener('click', () => {{
-    const current = document.documentElement.getAttribute('data-theme') || 'dark';
-    applyTheme(current === 'dark' ? 'light' : 'dark');
-  }});
+  const toggleBtn = document.getElementById('themeToggle');
+  if (toggleBtn) {{
+    toggleBtn.addEventListener('click', () => {{
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    }});
+  }}
+
+  const repoSelectEl = document.getElementById('repoSelect');
+  if (repoSelectEl) {{
+    repoSelectEl.addEventListener('change', function() {{
+      const val = this.value;
+      window.location.href = val === 'all' ? '/dashboard' : '/dashboard?repo=' + encodeURIComponent(val);
+    }});
+  }}
 
   // ── Fond animé : reseau de neurones couvrant toute la page ──
   (function() {{
@@ -527,7 +569,160 @@ def generate_dashboard_html(stats: dict) -> str:
     }}
     requestAnimationFrame(tick);
   }})();
+</script>
+</body>
+</html>"""
 
+
+def risk_badge_class(risk_level: str) -> str:
+    mapping = {
+        "CRITICAL RISK": "critical",
+        "HIGH RISK": "high",
+        "MEDIUM RISK": "medium",
+        "LOW RISK": "low",
+        "CLEAN": "clean"
+    }
+    return mapping.get(risk_level, "medium")
+
+
+def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: str = None) -> str:
+    reports = reports or []
+    repos = get_all_repos(reports)
+    pr_list = get_pr_list(reports)
+
+    score_labels = json.dumps([f"PR #{h['pr_number']}" for h in stats["score_history"]])
+    score_values = json.dumps([h["score"] for h in stats["score_history"]])
+    risk_labels = json.dumps(list(stats["score_distribution"].keys()))
+    risk_values = json.dumps(list(stats["score_distribution"].values()))
+    type_labels = json.dumps(list(stats["type_distribution"].keys()))
+    type_values = json.dumps(list(stats["type_distribution"].values()))
+
+    worst_files_rows = ""
+    max_count = max([c for _, c in stats["worst_files"]], default=1)
+    for file_path, count in stats["worst_files"]:
+        pct = int((count / max_count) * 100) if max_count else 0
+        worst_files_rows += f"""
+        <div class="file-row">
+        <div class="file-row-top">
+            <span class="file-name">{file_path}</span>
+            <span class="file-count">{count}</span>
+          </div>
+          <div class="file-bar-track"><div class="file-bar-fill" style="width:{pct}%"></div></div>
+        </div>"""
+    if not worst_files_rows:
+        worst_files_rows = '<div class="empty-state">Aucune donnée — lancez votre première analyse.</div>'
+
+    # Selecteur de repo
+    current = selected_repo or "all"
+    options = f'<option value="all" {"selected" if current == "all" else ""}>Tous les repos</option>'
+    for repo in repos:
+        sel = "selected" if repo == current else ""
+        options += f'<option value="{repo}" {sel}>{repo}</option>'
+
+    # Tableau des PRs analysees
+    pr_rows = ""
+    for r in pr_list:
+        badge_class = risk_badge_class(r.get("risk_level", ""))
+        analyzed_date = r.get("analyzed_at", "")[:16].replace("T", " ")
+        pr_rows += f"""
+        <tr>
+          <td>#{r.get('pr_number')}</td>
+          <td>{r.get('pr_title', '—')[:50]}</td>
+          <td class="repo-tag">{r.get('repo_name', '—')}</td>
+          <td><span class="badge {badge_class}">{r.get('score', 0)}/100</span></td>
+          <td>{r.get('total_issues', 0)}</td>
+          <td class="repo-tag">{analyzed_date}</td>
+          <td><a class="view-btn" href="/dashboard/pr/{r.get('pr_number')}?repo={r.get('repo_name', '')}">Voir →</a></td>
+        </tr>"""
+    if not pr_rows:
+        pr_rows = '<tr><td colspan="7"><div class="empty-state">Aucune PR analysée pour le moment.</div></td></tr>'
+
+    body = f"""
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text">
+        <h1>Agent IA de Revue de Code · Smartovate LTD</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="repo-select">
+        <select id="repoSelect">{options}</select>
+      </div>
+      <div class="status-pill">
+        <span class="pulse-dot"></span>
+        LIVE
+      </div>
+      <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+        <span id="themeLabel">Mode nuit</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="kpi-strip">
+    <div class="kpi">
+      <div class="kpi-label">PRs Analysées</div>
+      <div class="kpi-value accent">{stats['total_prs']}</div>
+      <div class="kpi-sub">total surveillé</div>
+      <div class="kpi-spark"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Score Moyen</div>
+      <div class="kpi-value">{stats['average_score']}<span style="font-size:14px;color:var(--text-dim)">/100</span></div>
+      <div class="kpi-sub">qualité globale</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Issues Détectées</div>
+      <div class="kpi-value warn">{stats['total_issues']}</div>
+      <div class="kpi-sub">{stats['critical_count']} critiques</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Fichiers à Risque</div>
+      <div class="kpi-value">{len(stats['worst_files'])}</div>
+      <div class="kpi-sub">nécessitent attention</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Temps Gagné</div>
+      <div class="kpi-value accent">{stats['time_saved']['formatted']}</div>
+      <div class="kpi-sub">vs revue manuelle</div>
+      <div class="kpi-spark"></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Évolution du score</div></div>
+      <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Niveaux de risque</div></div>
+      <div class="chart-wrap"><canvas id="riskChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid-3">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Répartition par type</div></div>
+      <div class="chart-wrap" style="height:200px"><canvas id="typeChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title">Fichiers les plus problématiques</div></div>
+      {worst_files_rows}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title">Pull Requests analysées ({len(pr_list)})</div></div>
+    <table class="pr-table">
+      <tr>
+        <th>PR</th><th>Titre</th><th>Repo</th><th>Score</th><th>Issues</th><th>Date</th><th></th>
+      </tr>
+      {pr_rows}
+    </table>
+  </div>
+
+<script>
   Chart.defaults.color = '#5e7269';
   Chart.defaults.font.family = "'JetBrains Mono', monospace";
   Chart.defaults.font.size = 11;
@@ -600,10 +795,112 @@ def generate_dashboard_html(stats: dict) -> str:
     }}
   }});
 
-  // Auto-refresh toutes les 30 secondes pour un effet "live"
   setTimeout(() => location.reload(), 30000);
 </script>
-</body>
-</html>"""
+"""
 
-    return html
+    return render_page_shell("Agent IA de Revue de Code — Dashboard", body)
+
+
+def generate_pr_detail_html(report: dict) -> str:
+    """
+    Genere la page de detail complete pour une PR specifique
+    """
+    if not report:
+        body = """
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>PR introuvable</h1></div>
+    </div>
+  </div>
+  <div class="panel"><div class="empty-state">Aucun rapport trouvé pour cette PR.</div></div>
+  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
+"""
+        return render_page_shell("PR introuvable", body)
+
+    badge_class = risk_badge_class(report.get("risk_level", ""))
+    analyzed_date = report.get("analyzed_at", "")[:19].replace("T", " ")
+
+    file_rows = ""
+    for file_path, metrics in report.get("file_metrics", {}).items():
+        file_rows += f"""
+        <tr>
+          <td>{file_path}</td>
+          <td>{metrics.get('total_issues', 0)}</td>
+          <td>{metrics.get('critical', 0)}</td>
+          <td>{metrics.get('high', 0)}</td>
+          <td>{metrics.get('medium', 0)}</td>
+          <td>{metrics.get('low', 0)}</td>
+        </tr>"""
+    if not file_rows:
+        file_rows = '<tr><td colspan="6"><div class="empty-state">Aucun fichier concerné.</div></td></tr>'
+
+    issue_cards = ""
+    for issue in report.get("issues", []):
+        severity = issue.get("severity", "low")
+        issue_cards += f"""
+        <div class="issue-card {severity}">
+          <div class="issue-head">
+            <span class="badge {severity}">{severity.upper()}</span>
+            <span class="issue-loc">{issue.get('file_path', '')} · ligne {issue.get('line', '?')}</span>
+          </div>
+          <div class="issue-desc">{issue.get('description', '')}</div>
+          <div class="issue-fix"><b>Suggestion :</b> {issue.get('suggestion', 'N/A')}</div>
+        </div>"""
+    if not issue_cards:
+        issue_cards = '<div class="empty-state">Aucun problème détecté sur cette PR. ✅</div>'
+
+    body = f"""
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text">
+        <h1>PR #{report.get('pr_number')} — {report.get('pr_title', '')[:60]}</h1>
+      </div>
+    </div>
+    <div class="header-actions">
+      <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+        <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+        <span id="themeLabel">Mode nuit</span>
+      </div>
+    </div>
+  </div>
+
+  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
+
+  <div class="kpi-strip" style="grid-template-columns: repeat(4, 1fr); margin-top: 16px;">
+    <div class="kpi">
+      <div class="kpi-label">Score</div>
+      <div class="kpi-value accent">{report.get('score', 0)}<span style="font-size:14px;color:var(--text-dim)">/100</span></div>
+      <div class="kpi-sub"><span class="badge {badge_class}">{report.get('risk_level', 'N/A')}</span></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Repository</div>
+      <div class="kpi-value" style="font-size:16px;">{report.get('repo_name', '—')}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Issues totales</div>
+      <div class="kpi-value warn">{report.get('total_issues', 0)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Analysée le</div>
+      <div class="kpi-value" style="font-size:14px;">{analyzed_date}</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title">Métriques par fichier</div></div>
+    <table class="pr-table">
+      <tr><th>Fichier</th><th>Total</th><th>Critical</th><th>High</th><th>Medium</th><th>Low</th></tr>
+      {file_rows}
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title">Problèmes détectés ({report.get('total_issues', 0)})</div></div>
+    {issue_cards}
+  </div>
+"""
+
+    return render_page_shell(f"PR #{report.get('pr_number')} — Détail", body)

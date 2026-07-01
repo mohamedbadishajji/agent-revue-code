@@ -123,12 +123,28 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard():
+async def dashboard(repo: str = None):
     """
     Dashboard de métriques de revue de code
-    REVUE-46 : Développer le dashboard de métriques de revue
+    REVUE-46 : Filtrable par repository
     """
-    reports = get_all_reports()
-    stats = calculate_dashboard_stats(reports)
-    html = generate_dashboard_html(stats)
+    from app.dashboard import get_all_reports, filter_reports_by_repo, calculate_dashboard_stats, generate_dashboard_html
+
+    all_reports = get_all_reports()
+    filtered_reports = filter_reports_by_repo(all_reports, repo)
+    stats = calculate_dashboard_stats(filtered_reports)
+    html = generate_dashboard_html(stats, filtered_reports, repo)
+    return html
+
+
+@app.get("/dashboard/pr/{pr_number}", response_class=HTMLResponse)
+async def dashboard_pr_detail(pr_number: int, repo: str = None):
+    """
+    Page de détail complète pour une PR analysée specifique
+    """
+    from app.dashboard import get_all_reports, get_report_by_pr, generate_pr_detail_html
+
+    all_reports = get_all_reports()
+    report = get_report_by_pr(all_reports, pr_number, repo)
+    html = generate_pr_detail_html(report)
     return html

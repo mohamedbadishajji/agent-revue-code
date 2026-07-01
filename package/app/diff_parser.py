@@ -5,12 +5,8 @@ import os
 load_dotenv()
 
 APP_ID = os.getenv("GITHUB_APP_ID")
-PRIVATE_KEY_PATH = os.getenv("GITHUB_PRIVATE_KEY_PATH")
 INSTALLATION_ID = int(os.getenv("GITHUB_INSTALLATION_ID"))
 MAX_TOKENS = 128000  # Limite de tokens du LLM (Bug 1)
-
-with open(PRIVATE_KEY_PATH, "r") as f:
-    PRIVATE_KEY = f.read()
 
 # Extensions de fichiers à analyser
 SUPPORTED_EXTENSIONS = [".py", ".js", ".ts", ".jsx", ".tsx"]
@@ -30,7 +26,19 @@ def get_language(file_path: str) -> str:
         ".js": "javascript",
         ".ts": "typescript",
         ".jsx": "javascript",
-        ".tsx": "typescript"
+        ".tsx": "typescript",
+        ".java": "java",
+        ".go": "go",
+        ".php": "php",
+        ".rb": "ruby",
+        ".cs": "csharp",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".cc": "cpp",
+        ".h": "c",
+        ".hpp": "cpp"
     }
     return languages.get(ext, "unknown")
 
@@ -46,19 +54,19 @@ def extract_diff(repo_name: str, pr_number: int) -> list:
     Critère 1 : L'API GitHub est appelée pour récupérer le patch/diff
     """
     from app.github_client import get_github_client
-    
+
     client = get_github_client(INSTALLATION_ID)
     repo = client.get_repo(repo_name)
     pr = repo.get_pull(pr_number)
-    
+
     files = pr.get_files()
     diff_files = []
-    
+
     for file in files:
         # Ignorer les fichiers sans patch (fichiers binaires, etc.)
         if not file.patch:
             continue
-            
+
         diff_files.append({
             "file_path": file.filename,
             "language": get_language(file.filename),
@@ -67,7 +75,7 @@ def extract_diff(repo_name: str, pr_number: int) -> list:
             "deletions": file.deletions,
             "status": file.status  # added, modified, removed
         })
-    
+
     print(f"✅ {len(diff_files)} fichiers avec diff récupérés")
     return diff_files
 
@@ -77,23 +85,23 @@ def parse_diff(diff_files: list) -> list:
     Parse le diff brut pour extraire les lignes ajoutées avec leurs numéros
     """
     parsed_files = []
-    
+
     for file_data in diff_files:
         patch = file_data["patch"]
         added_lines = []
         current_line = 0
         patch_position = 0
-        
+
         for line in patch.splitlines():
             patch_position += 1
-            
+
             # Extraire le numéro de ligne depuis l'en-tête du hunk
             if line.startswith("@@"):
                 import re
                 match = re.search(r'\+(\d+)', line)
                 if match:
                     current_line = int(match.group(1)) - 1
-                    
+
             elif line.startswith("+") and not line.startswith("+++"):
                 current_line += 1
                 added_lines.append({
@@ -101,10 +109,10 @@ def parse_diff(diff_files: list) -> list:
                     "content": line[1:],  # Enlever le +
                     "patch_position": patch_position  # Pour Bug 3
                 })
-                
+
             elif not line.startswith("-"):
                 current_line += 1
-        
+
         parsed_files.append({
             "file_path": file_data["file_path"],
             "language": file_data["language"],
@@ -113,7 +121,7 @@ def parse_diff(diff_files: list) -> list:
             "token_count": estimate_tokens(patch),
             "status": file_data["status"]
         })
-    
+
     return parsed_files
 
 
@@ -125,27 +133,27 @@ def chunk_diff(parsed_files: list, max_tokens: int = MAX_TOKENS) -> list:
     chunks = []
     current_chunk = []
     current_tokens = 0
-    
+
     for file_data in parsed_files:
         file_tokens = file_data["token_count"]
-        
+
         # Si un seul fichier dépasse la limite → on l'ignore avec avertissement
         if file_tokens > max_tokens:
             print(f"⚠️ Fichier {file_data['file_path']} trop grand ({file_tokens} tokens) — ignoré")
             continue
-        
+
         # Si ajouter ce fichier dépasse la limite → nouveau chunk
         if current_tokens + file_tokens > max_tokens and current_chunk:
             chunks.append(current_chunk)
             current_chunk = []
             current_tokens = 0
-        
+
         current_chunk.append(file_data)
         current_tokens += file_tokens
-    
+
     # Ajouter le dernier chunk
     if current_chunk:
         chunks.append(current_chunk)
-    
+
     print(f"✅ Diff découpé en {len(chunks)} chunk(s)")
     return chunks
