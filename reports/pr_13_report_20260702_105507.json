@@ -1,0 +1,48 @@
+{
+  "repo_name": "mohamedbadishajji/test_agent_revue",
+  "pr_number": 13,
+  "pr_title": "Add divide function and password constant",
+  "analyzed_at": "2026-07-02T10:55:07.579048",
+  "score": 69,
+  "risk_level": "MEDIUM RISK",
+  "total_issues": 2,
+  "file_metrics": {
+    "vazy.py": {
+      "total_issues": 2,
+      "critical": 1,
+      "high": 1,
+      "medium": 0,
+      "low": 0
+    }
+  },
+  "type_metrics": {
+    "security": 1,
+    "bug": 1
+  },
+  "worst_file": {
+    "path": "vazy.py",
+    "issue_count": 2
+  },
+  "issues": [
+    {
+      "line": 3,
+      "severity": "critical",
+      "type": "security",
+      "description": "Mot de passe hardcodé en clair dans le code source. Toute personne ayant accès au dépôt peut voir ce credential.",
+      "suggestion": "Utiliser une variable d'environnement pour stocker le mot de passe et ne jamais committer de credentials dans le code source.",
+      "fix_code": "PASSWORD = os.environ.get(\"PASSWORD\")",
+      "file_path": "vazy.py",
+      "language": "python"
+    },
+    {
+      "line": 6,
+      "severity": "high",
+      "type": "bug",
+      "description": "Division sans vérification de zéro. Si b=0, une ZeroDivisionError sera levée.",
+      "suggestion": "Vérifier que b est différent de zéro avant d'effectuer la division, ou gérer l'exception explicitement.",
+      "fix_code": "    if b == 0:\n        raise ValueError(\"Le diviseur ne peut pas être zéro\")\n    return a / b",
+      "file_path": "vazy.py",
+      "language": "python"
+    }
+  ]
+}

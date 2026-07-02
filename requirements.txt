@@ -6,3 +6,4 @@ requests
 mangum
 pyyaml
 boto3
+azure-storage-blob
