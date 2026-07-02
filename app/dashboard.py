@@ -459,7 +459,6 @@ def render_page_shell(title: str, body_content: str, extra_head: str = "") -> st
 <canvas id="bg-canvas"></canvas>
 <div class="page">
 {body_content}
-<footer>Agent IA de Revue de Code — Propulsé par AWS Bedrock (Claude Sonnet 4.6)</footer>
 </div>
 
 <script>
