@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import json
 import glob
@@ -8,10 +10,62 @@ REPORTS_DIR = "reports"
 ESTIMATED_TIME_PER_REVIEW_MINUTES = 15
 
 
+def get_blob_service_client():
+    """
+    Crée le client Azure Blob Storage si les credentials sont configurés
+    """
+    account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+    account_key = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+
+    if not account_name or not account_key:
+        return None
+
+    connection_string = (
+        f"DefaultEndpointsProtocol=https;"
+        f"AccountName={account_name};"
+        f"AccountKey={account_key};"
+        f"EndpointSuffix=core.windows.net"
+    )
+
+    try:
+        from azure.storage.blob import BlobServiceClient
+        return BlobServiceClient.from_connection_string(connection_string)
+    except Exception as e:
+        print(f"   ⚠️ Erreur connexion Azure Blob Storage : {str(e)}")
+        return None
+
+
 def get_all_reports() -> list:
-    if not os.path.exists(REPORTS_DIR):
-        return []
+    """
+    Charge tous les rapports JSON
+    REVUE-46 : Priorise Azure Blob Storage (persistant), fallback local
+    """
     reports = []
+
+    # Priorité 1 : Azure Blob Storage
+    blob_service = get_blob_service_client()
+    if blob_service:
+        try:
+            container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "reports")
+            container_client = blob_service.get_container_client(container_name)
+
+            for blob in container_client.list_blobs():
+                try:
+                    blob_client = container_client.get_blob_client(blob.name)
+                    content = blob_client.download_blob().readall()
+                    reports.append(json.loads(content))
+                except Exception as e:
+                    print(f"   ⚠️ Erreur lecture blob {blob.name} : {str(e)}")
+
+            if reports:
+                return reports
+        except Exception as e:
+            print(f"   ⚠️ Erreur listing Azure Blob Storage : {str(e)} — fallback local")
+
+    # Priorité 2 : Stockage local (développement)
+    if not os.path.exists(REPORTS_DIR):
+        return reports
+
     pattern = os.path.join(REPORTS_DIR, "*.json")
     for filepath in glob.glob(pattern):
         try:
@@ -19,6 +73,7 @@ def get_all_reports() -> list:
                 reports.append(json.load(f))
         except Exception as e:
             print(f"   Erreur lecture {filepath} : {str(e)}")
+
     return reports
 
 

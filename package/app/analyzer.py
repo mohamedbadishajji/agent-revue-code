@@ -23,6 +23,43 @@ def clean_json_response(response: str) -> dict:
             clean = clean[4:]
     return json.loads(clean.strip())
 
+MAX_TOTAL_LINES = 500
+MAX_FILES_WHEN_LARGE = 10
+
+
+def check_pr_size(diff_files: list) -> dict:
+    """
+    Calcule la taille totale de la PR et determine si une limitation est necessaire
+    REVUE-48 : Timeout sur PRs > 500 lignes
+    """
+    total_lines = sum(
+        len(f.get("added_lines", [])) for f in diff_files
+    )
+
+    is_large = total_lines > MAX_TOTAL_LINES
+
+    return {
+        "total_lines": total_lines,
+        "is_large": is_large,
+        "max_allowed": MAX_TOTAL_LINES
+    }
+
+
+def limit_files_for_large_pr(parsed_files: list, max_files: int = MAX_FILES_WHEN_LARGE) -> tuple:
+    """
+    Pour les grosses PRs, garde uniquement les fichiers avec le plus de changements
+    Retourne (fichiers_analyses, fichiers_ignores_count)
+    """
+    sorted_files = sorted(
+        parsed_files,
+        key=lambda f: len(f.get("added_lines", [])),
+        reverse=True
+    )
+
+    limited_files = sorted_files[:max_files]
+    ignored_count = len(parsed_files) - len(limited_files)
+
+    return limited_files, ignored_count
 
 def analyze_file(file_data: dict, pr_title: str, custom_instructions: str = "") -> dict:
     """
@@ -105,6 +142,24 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     ]
     print(f"   ✅ {len(filtered_files)} fichier(s) après filtrage config")
 
+    # Étape 3.5 : Vérifier la taille de la PR (REVUE-48)
+    print("3.5 Verification de la taille de la PR...")
+    size_info = check_pr_size(filtered_files)
+    pr_size_warning = None
+
+    if size_info["is_large"]:
+        print(f"   ⚠️ PR volumineuse : {size_info['total_lines']} lignes (max recommande : {size_info['max_allowed']})")
+        filtered_files, ignored_count = limit_files_for_large_pr(filtered_files)
+        pr_size_warning = (
+            f"⚠️ **PR volumineuse détectée** ({size_info['total_lines']} lignes modifiées). "
+            f"Pour des raisons de performance, seuls les {len(filtered_files)} fichiers "
+            f"les plus impactés ont été analysés en priorité. "
+            f"{ignored_count} fichier(s) supplémentaire(s) n'ont pas été analysés dans cette passe."
+        )
+        print(f"   ✅ Analyse limitee a {len(filtered_files)} fichier(s) prioritaires")
+    else:
+        print(f"   ✅ Taille de PR normale : {size_info['total_lines']} lignes")
+
     if not filtered_files:
         print("Aucun fichier pertinent a analyser")
         return {
@@ -152,12 +207,18 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     print(f"\nAnalyse terminee — {len(all_issues)} probleme(s) au total")
     print(f"Score de risque : {scoring['score']}/100 — {scoring['risk_level']['emoji']} {scoring['risk_level']['level']}")
 
+    # Ajouter l'avertissement de taille au résumé si applicable (REVUE-48)
+    final_summary = global_summary
+    if pr_size_warning:
+        final_summary = f"{pr_size_warning}\n\n---\n\n{global_summary}"
+
     return {
         "pr_number": pr_number,
         "repo_name": repo_name,
         "total_issues": len(all_issues),
         "issues": all_issues,
-        "summary": global_summary,
+        "summary": final_summary,
         "scoring": scoring,
-        "score_report": score_report
+        "score_report": score_report,
+        "pr_size_warning": pr_size_warning
     }

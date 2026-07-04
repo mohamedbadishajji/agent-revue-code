@@ -2,6 +2,7 @@ import json
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+from azure.storage.blob import BlobServiceClient
 
 load_dotenv()
 
@@ -181,19 +182,62 @@ def generate_quality_report_json(
     }
 
 
+def get_blob_service_client():
+    """
+    Crée le client Azure Blob Storage si les credentials sont configurés
+    Retourne None si non configuré (fallback vers stockage local)
+    """
+    account_name = os.getenv("AZURE_STORAGE_ACCOUNT_NAME")
+    account_key = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+
+    if not account_name or not account_key:
+        return None
+
+    connection_string = (
+        f"DefaultEndpointsProtocol=https;"
+        f"AccountName={account_name};"
+        f"AccountKey={account_key};"
+        f"EndpointSuffix=core.windows.net"
+    )
+
+    try:
+        return BlobServiceClient.from_connection_string(connection_string)
+    except Exception as e:
+        print(f"   ⚠️ Erreur connexion Azure Blob Storage : {str(e)}")
+        return None
+
+
 def save_quality_report(report_json: dict, output_dir: str = "reports") -> str:
     """
-    Sauvegarde le rapport JSON dans un fichier
+    Sauvegarde le rapport JSON
+    REVUE-46 : Utilise Azure Blob Storage pour la persistance
+    Fallback vers stockage local si Azure non configuré (dev local)
     """
+    pr_number = report_json["pr_number"]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"pr_{pr_number}_report_{timestamp}.json"
+
+    json_content = json.dumps(report_json, indent=2, ensure_ascii=False)
+
+    # Priorité 1 : Azure Blob Storage (persistant, production)
+    blob_service = get_blob_service_client()
+    if blob_service:
+        try:
+            container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "reports")
+            blob_client = blob_service.get_blob_client(container=container_name, blob=filename)
+            blob_client.upload_blob(json_content, overwrite=True)
+            print(f"   ✅ Rapport sauvegardé sur Azure Blob Storage : {filename}")
+            return f"blob://{container_name}/{filename}"
+        except Exception as e:
+            print(f"   ⚠️ Erreur sauvegarde Azure Blob : {str(e)} — fallback local")
+
+    # Priorité 2 : Stockage local (développement)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    pr_number = report_json["pr_number"]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"{output_dir}/pr_{pr_number}_report_{timestamp}.json"
+    local_path = f"{output_dir}/{filename}"
+    with open(local_path, "w", encoding="utf-8") as f:
+        f.write(json_content)
 
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(report_json, f, indent=2, ensure_ascii=False)
-
-    print(f"   ✅ Rapport sauvegardé : {filename}")
-    return filename
+    print(f"   ✅ Rapport sauvegardé localement : {local_path}")
+    return local_path
