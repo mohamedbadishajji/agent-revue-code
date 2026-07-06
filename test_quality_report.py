@@ -41,7 +41,8 @@ report_json = generate_quality_report_json(
     pr_number=pr_number,
     pr_title=pr_title,
     issues=result['issues'],
-    scoring=result['scoring']
+    scoring=result['scoring'],
+    file_line_counts=result.get('file_line_counts', {})
 )
 print("✅ Rapport JSON généré")
 

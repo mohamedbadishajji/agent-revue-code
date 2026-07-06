@@ -154,11 +154,13 @@ def generate_quality_report_json(
     pr_number: int,
     pr_title: str,
     issues: list,
-    scoring: dict
+    scoring: dict,
+    file_line_counts: dict = None
 ) -> dict:
     """
     Génère un rapport de qualité au format JSON
     Pour intégration future avec dashboard (REVUE-46)
+    Inclut le nombre exact de lignes par fichier (pour temps gagne precis)
     """
     file_metrics = get_file_metrics(issues)
     type_metrics = get_type_metrics(issues)
@@ -178,7 +180,8 @@ def generate_quality_report_json(
             "path": worst_file,
             "issue_count": worst_count
         } if worst_file else None,
-        "issues": issues
+        "issues": issues,
+        "file_line_counts": file_line_counts or {}
     }
 
 

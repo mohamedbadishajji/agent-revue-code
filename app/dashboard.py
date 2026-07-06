@@ -118,8 +118,56 @@ def get_report_by_pr(reports: list, pr_number: int, repo_name: str = None) -> di
     return matching[0]
 
 
-def calculate_time_saved(total_prs: int) -> dict:
-    total_minutes = total_prs * ESTIMATED_TIME_PER_REVIEW_MINUTES
+BASE_MINUTES_PER_PR = 5
+MINUTES_PER_LINE = 0.1
+
+SEVERITY_TIME_WEIGHTS = {
+    "critical": 8,
+    "high": 5,
+    "medium": 3,
+    "low": 1
+}
+
+
+def estimate_review_time_minutes(report: dict) -> float:
+    """
+    Estime le temps qu'un reviewer humain aurait passe sur CETTE PR precise
+    Formule : temps de base + temps de lecture (proportionnel aux VRAIES lignes modifiees)
+              + temps d'investigation pondere par la severite de chaque probleme
+    REVUE-46 : Calcul precis base sur les donnees reelles de la PR
+    """
+    minutes = BASE_MINUTES_PER_PR
+
+    # Temps de lecture proportionnel au nombre REEL de lignes ajoutees
+    file_line_counts = report.get("file_line_counts", {})
+    if file_line_counts:
+        total_lines = sum(file_line_counts.values())
+    else:
+        # Fallback pour les anciens rapports sans cette donnee
+        num_files = len(report.get("file_metrics", {}))
+        total_lines = num_files * 30
+
+    minutes += total_lines * MINUTES_PER_LINE
+
+    # Temps d'investigation pondere par la severite reelle de chaque probleme
+    for issue in report.get("issues", []):
+        severity = issue.get("severity", "low")
+        minutes += SEVERITY_TIME_WEIGHTS.get(severity, 1)
+
+    return round(minutes, 1)
+
+
+def calculate_time_saved(reports_or_count) -> dict:
+    """
+    Calcule le temps total gagne
+    Accepte soit une liste de rapports (calcul precis), soit un entier (fallback)
+    """
+    if isinstance(reports_or_count, list):
+        total_minutes = sum(estimate_review_time_minutes(r) for r in reports_or_count)
+    else:
+        # Fallback si aucun rapport disponible (cas vide)
+        total_minutes = 0
+
     hours = total_minutes // 60
     minutes = total_minutes % 60
     return {
@@ -136,7 +184,7 @@ def calculate_dashboard_stats(reports: list) -> dict:
             "total_prs": 0, "average_score": 0, "total_issues": 0,
             "score_distribution": {}, "type_distribution": {},
             "worst_files": [], "score_history": [],
-            "time_saved": calculate_time_saved(0),
+            "time_saved": calculate_time_saved([]),
             "critical_count": 0, "approved_count": 0
         }
 
@@ -170,7 +218,7 @@ def calculate_dashboard_stats(reports: list) -> dict:
         key=lambda x: x["date"]
     )
 
-    time_saved = calculate_time_saved(total_prs)
+    time_saved = calculate_time_saved(pr_list)
     critical_count = score_distribution.get("CRITICAL RISK", 0)
     approved_count = score_distribution.get("CLEAN", 0)
 
@@ -939,7 +987,7 @@ def generate_pr_detail_html(report: dict) -> str:
     </div>
     <div class="kpi">
       <div class="kpi-label">Temps Gagné</div>
-      <div class="kpi-value accent">{calculate_time_saved(1)['formatted']}</div>
+      <div class="kpi-value accent">{calculate_time_saved([report])['formatted']}</div>
       <div class="kpi-sub">vs revue manuelle</div>
     </div>
     <div class="kpi">

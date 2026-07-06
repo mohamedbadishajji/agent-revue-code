@@ -77,7 +77,8 @@ def process_pull_request(repo_name: str, pr_number: int, pr_title: str):
             pr_number=pr_number,
             pr_title=pr_title,
             issues=result["issues"],
-            scoring=result["scoring"]
+            scoring=result["scoring"],
+            file_line_counts=result.get("file_line_counts", {})
         )
         save_quality_report(report_json)
 
