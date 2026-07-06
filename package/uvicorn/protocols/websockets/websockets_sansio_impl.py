@@ -56,6 +56,7 @@ class WebSocketsSansIOProtocol(asyncio.Protocol):
         self.loop = _loop or asyncio.get_event_loop()
         self.logger = logging.getLogger("uvicorn.error")
         self.root_path = config.root_path
+        self.asgi_version = config.asgi_version
         self.app_state = app_state
 
         # Shared server state
@@ -104,8 +105,9 @@ class WebSocketsSansIOProtocol(asyncio.Protocol):
         self.ping_sent_at: float = 0.0
         self.last_ping_rtt: float = 0.0
 
-        # Buffers
-        self.bytes = bytearray()
+        # Incoming message state
+        self.frames: list[bytes] = []
+        self.curr_msg_data_type: Literal["text", "bytes"] = "bytes"
 
     def connection_made(self, transport: BaseTransport) -> None:
         """Called when a connection is made."""
@@ -197,7 +199,7 @@ class WebSocketsSansIOProtocol(asyncio.Protocol):
         raw_path, _, query_string = event.path.partition("?")
         self.scope: WebSocketScope = {
             "type": "websocket",
-            "asgi": {"version": self.config.asgi_version, "spec_version": "2.4"},
+            "asgi": {"version": self.asgi_version, "spec_version": "2.4"},
             "http_version": "1.1",
             "scheme": self.scheme,
             "server": self.server,
@@ -217,33 +219,35 @@ class WebSocketsSansIOProtocol(asyncio.Protocol):
         self.tasks.add(task)
 
     def handle_cont(self, event: Frame) -> None:
-        self.bytes.extend(event.data)
+        self.frames.append(event.data)  # type: ignore[arg-type]
         if event.fin:
             self.send_receive_event_to_app()
 
     def handle_text(self, event: Frame) -> None:
-        self.bytes = bytearray(event.data)
-        self.curr_msg_data_type: Literal["text", "bytes"] = "text"
+        self.curr_msg_data_type = "text"
+        self.frames = [event.data]  # type: ignore[list-item]
         if event.fin:
             self.send_receive_event_to_app()
 
     def handle_bytes(self, event: Frame) -> None:
-        self.bytes = bytearray(event.data)
         self.curr_msg_data_type = "bytes"
+        self.frames = [event.data]  # type: ignore[list-item]
         if event.fin:
             self.send_receive_event_to_app()
 
     def send_receive_event_to_app(self) -> None:
+        data = self.frames[0] if len(self.frames) == 1 else b"".join(self.frames)
+        self.frames = []
         if self.curr_msg_data_type == "text":
             try:
-                self.queue.put_nowait({"type": "websocket.receive", "text": self.bytes.decode()})
+                self.queue.put_nowait({"type": "websocket.receive", "text": data.decode()})
             except UnicodeDecodeError:  # pragma: no cover
                 self.logger.exception("Invalid UTF-8 sequence received from client.")
                 self.conn.send_close(1007)
                 self.handle_parser_exception()
                 return
         else:
-            self.queue.put_nowait({"type": "websocket.receive", "bytes": bytes(self.bytes)})
+            self.queue.put_nowait({"type": "websocket.receive", "bytes": data})
         if not self.read_paused:
             self.read_paused = True
             self.transport.pause_reading()

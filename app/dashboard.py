@@ -923,7 +923,7 @@ def generate_pr_detail_html(report: dict) -> str:
 
   <a class="back-link" href="/dashboard">← Retour au dashboard</a>
 
-  <div class="kpi-strip" style="grid-template-columns: repeat(4, 1fr); margin-top: 16px;">
+  <div class="kpi-strip" style="grid-template-columns: repeat(5, 1fr); margin-top: 16px;">
     <div class="kpi">
       <div class="kpi-label">Score</div>
       <div class="kpi-value accent">{report.get('score', 0)}<span style="font-size:14px;color:var(--text-dim)">/100</span></div>
@@ -936,6 +936,11 @@ def generate_pr_detail_html(report: dict) -> str:
     <div class="kpi">
       <div class="kpi-label">Issues totales</div>
       <div class="kpi-value warn">{report.get('total_issues', 0)}</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Temps Gagné</div>
+      <div class="kpi-value accent">{calculate_time_saved(1)['formatted']}</div>
+      <div class="kpi-sub">vs revue manuelle</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Analysée le</div>

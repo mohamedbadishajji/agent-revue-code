@@ -86,6 +86,36 @@ def process_pull_request(repo_name: str, pr_number: int, pr_title: str):
     except Exception as e:
         print(f"\n❌ ERREUR lors du traitement automatique de la PR #{pr_number} : {str(e)}\n")
 
+MAX_RETRY_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 5
+
+
+def process_pull_request_with_retry(repo_name: str, pr_number: int, pr_title: str):
+    """
+    Traite une PR avec mecanisme de retry en cas d'echec
+    REVUE-50 : Ajouter un retry si le traitement echoue
+    """
+    import time
+
+    for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+        try:
+            print(f"\n🔄 Tentative {attempt}/{MAX_RETRY_ATTEMPTS} — PR #{pr_number}")
+            process_pull_request(repo_name, pr_number, pr_title)
+            print(f"✅ Traitement reussi a la tentative {attempt}")
+            return
+
+        except Exception as e:
+            print(f"❌ Echec tentative {attempt}/{MAX_RETRY_ATTEMPTS} — PR #{pr_number} : {str(e)}")
+
+            if attempt < MAX_RETRY_ATTEMPTS:
+                wait_time = RETRY_DELAY_SECONDS * attempt
+                print(f"⏳ Nouvelle tentative dans {wait_time}s...")
+                time.sleep(wait_time)
+            else:
+                print(f"🚨 ABANDON apres {MAX_RETRY_ATTEMPTS} tentatives — PR #{pr_number}")
+
+SUPPORTED_PR_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"]
+
 
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
@@ -102,22 +132,30 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     # Parser le payload
     data = await request.json()
     event = request.headers.get("X-GitHub-Event")
+    delivery_id = request.headers.get("X-GitHub-Delivery", "unknown")
+
+    print(f"📨 Webhook recu — Event: {event} — Delivery ID: {delivery_id}")
 
     # Traiter uniquement les evenements pull_request
     if event == "pull_request":
         action = data.get("action")
-        if action in ["opened", "synchronize"]:
+
+        # REVUE-50 : Elargir les actions ecoutees (pas seulement opened/synchronize)
+        if action in SUPPORTED_PR_ACTIONS:
             pr_number = data["pull_request"]["number"]
             repo_name = data["repository"]["full_name"]
             pr_title = data["pull_request"]["title"]
 
             print(f"✅ PR #{pr_number} détectée sur {repo_name} - Action: {action}")
 
-            # Lancer le traitement complet en arriere-plan
-            # (pour repondre immediatement a GitHub sans timeout)
-            background_tasks.add_task(process_pull_request, repo_name, pr_number, pr_title)
+            # Lancer le traitement complet en arriere-plan avec retry (REVUE-50)
+            background_tasks.add_task(
+                process_pull_request_with_retry, repo_name, pr_number, pr_title
+            )
 
-            return {"message": f"PR #{pr_number} en cours d'analyse"}
+            return {"message": f"PR #{pr_number} en cours d'analyse (action: {action})"}
+        else:
+            print(f"ℹ️ Action ignoree : {action} (non supportee)")
 
     return {"message": "Événement ignoré"}
 

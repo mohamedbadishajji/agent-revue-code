@@ -9,10 +9,9 @@ from multiprocessing import Pipe
 from socket import socket
 from typing import Any
 
-import click
-
+from uvicorn._ansi import style
 from uvicorn._subprocess import get_subprocess
-from uvicorn.config import Config
+from uvicorn.config import STARTUP_FAILURE, Config
 
 SIGNALS = {
     getattr(signal, f"SIG{x}"): x
@@ -99,6 +98,10 @@ class Process:
     def pid(self) -> int | None:
         return self.process.pid
 
+    @property
+    def exitcode(self) -> int | None:
+        return self.process.exitcode
+
 
 class Multiprocess:
     def __init__(
@@ -144,7 +147,7 @@ class Multiprocess:
 
     def run(self) -> None:
         message = f"Started parent process [{os.getpid()}]"
-        color_message = "Started parent process [{}]".format(click.style(str(os.getpid()), fg="cyan", bold=True))
+        color_message = "Started parent process [{}]".format(style(str(os.getpid()), fg="cyan", bold=True))
         logger.info(message, extra={"color_message": color_message})
 
         self.init_processes()
@@ -157,7 +160,7 @@ class Multiprocess:
         self.join_all()
 
         message = f"Stopping parent process [{os.getpid()}]"
-        color_message = "Stopping parent process [{}]".format(click.style(str(os.getpid()), fg="cyan", bold=True))
+        color_message = "Stopping parent process [{}]".format(style(str(os.getpid()), fg="cyan", bold=True))
         logger.info(message, extra={"color_message": color_message})
 
     def keep_subprocess_alive(self) -> None:
@@ -170,6 +173,14 @@ class Multiprocess:
 
             process.kill()  # process is hung, kill it
             process.join()
+
+            if process.exitcode == STARTUP_FAILURE:
+                # The worker failed before it started serving, so the app, TLS or socket
+                # bind is broken and would fail the same way on every restart.
+                # See https://github.com/encode/uvicorn/discussions/2440.
+                logger.error(f"Child process [{process.pid}] failed to start, stopping the parent process.")
+                self.should_exit.set()
+                return
 
             if self.should_exit.is_set():
                 return  # pragma: full coverage
