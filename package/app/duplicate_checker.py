@@ -25,24 +25,28 @@ def get_existing_comments(repo_name: str, pr_number: int) -> list:
         # Récupérer les commentaires inline (review comments)
         for comment in pr.get_review_comments():
             if AGENT_SIGNATURE in comment.body:
-                existing_comments.append({
-                    "type": "inline",
-                    "file_path": comment.path,
-                    "line": comment.line,
-                    "body": comment.body,
-                    "id": comment.id
-                })
+                existing_comments.append(
+                    {
+                        "type": "inline",
+                        "file_path": comment.path,
+                        "line": comment.line,
+                        "body": comment.body,
+                        "id": comment.id,
+                    }
+                )
 
         # Récupérer les commentaires globaux (issue comments)
         for comment in pr.get_issue_comments():
             if AGENT_SIGNATURE in comment.body:
-                existing_comments.append({
-                    "type": "global",
-                    "file_path": None,
-                    "line": None,
-                    "body": comment.body,
-                    "id": comment.id
-                })
+                existing_comments.append(
+                    {
+                        "type": "global",
+                        "file_path": None,
+                        "line": None,
+                        "body": comment.body,
+                        "id": comment.id,
+                    }
+                )
 
         print(f"   📋 {len(existing_comments)} commentaire(s) de l'agent déjà présents")
         return existing_comments
@@ -66,8 +70,10 @@ def is_duplicate(issue: dict, existing_comments: list) -> bool:
         # Vérifier même fichier et même ligne
         if comment.get("file_path") == file_path and comment.get("line") == line:
             # Vérifier si le type de problème est mentionné dans le commentaire
-            if issue_type.lower() in comment["body"].lower() or \
-               severity.lower() in comment["body"].lower():
+            if (
+                issue_type.lower() in comment["body"].lower()
+                or severity.lower() in comment["body"].lower()
+            ):
                 return True
 
     return False
@@ -97,7 +103,9 @@ def filter_duplicate_issues(issues: list, repo_name: str, pr_number: int) -> lis
     for issue in issues:
         if is_duplicate(issue, existing_comments):
             duplicate_count += 1
-            print(f"   ⚠️ Doublon ignoré — {issue.get('file_path')} ligne {issue.get('line')} [{issue.get('type')}]")
+            print(
+                f"   ⚠️ Doublon ignoré — {issue.get('file_path')} ligne {issue.get('line')} [{issue.get('type')}]"
+            )
         else:
             new_issues.append(issue)
 

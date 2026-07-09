@@ -24,7 +24,7 @@ def get_file_metrics(issues: list) -> dict:
                 "critical": 0,
                 "high": 0,
                 "medium": 0,
-                "low": 0
+                "low": 0,
             }
 
         file_metrics[file_path]["total_issues"] += 1
@@ -62,11 +62,7 @@ def get_worst_file(file_metrics: dict) -> tuple:
 
 
 def generate_quality_report_markdown(
-    repo_name: str,
-    pr_number: int,
-    pr_title: str,
-    issues: list,
-    scoring: dict
+    repo_name: str, pr_number: int, pr_title: str, issues: list, scoring: dict
 ) -> str:
     """
     Génère un rapport de qualité complet en Markdown
@@ -130,7 +126,12 @@ _{scoring['risk_level']['description']}_
         report += "✅ Aucun problème détecté.\n"
     else:
         for i, issue in enumerate(issues, 1):
-            severity_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+            severity_emoji = {
+                "critical": "🔴",
+                "high": "🟠",
+                "medium": "🟡",
+                "low": "🟢",
+            }
             emoji = severity_emoji.get(issue.get("severity", "low"), "⚪")
 
             report += f"""### {i}. {emoji} {issue.get('description', 'N/A')}
@@ -155,7 +156,7 @@ def generate_quality_report_json(
     pr_title: str,
     issues: list,
     scoring: dict,
-    file_line_counts: dict = None
+    file_line_counts: dict = None,
 ) -> dict:
     """
     Génère un rapport de qualité au format JSON
@@ -176,12 +177,11 @@ def generate_quality_report_json(
         "total_issues": len(issues),
         "file_metrics": file_metrics,
         "type_metrics": type_metrics,
-        "worst_file": {
-            "path": worst_file,
-            "issue_count": worst_count
-        } if worst_file else None,
+        "worst_file": (
+            {"path": worst_file, "issue_count": worst_count} if worst_file else None
+        ),
         "issues": issues,
-        "file_line_counts": file_line_counts or {}
+        "file_line_counts": file_line_counts or {},
     }
 
 
@@ -227,7 +227,9 @@ def save_quality_report(report_json: dict, output_dir: str = "reports") -> str:
     if blob_service:
         try:
             container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "reports")
-            blob_client = blob_service.get_blob_client(container=container_name, blob=filename)
+            blob_client = blob_service.get_blob_client(
+                container=container_name, blob=filename
+            )
             blob_client.upload_blob(json_content, overwrite=True)
             print(f"   ✅ Rapport sauvegardé sur Azure Blob Storage : {filename}")
             return f"blob://{container_name}/{filename}"

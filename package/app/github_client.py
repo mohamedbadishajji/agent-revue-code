@@ -23,7 +23,7 @@ def reconstruct_pem_format(flat_key: str) -> str:
     if header in flat_key and footer in flat_key:
         body = flat_key.replace(header, "").replace(footer, "").strip()
         body = body.replace(" ", "")
-        lines = [body[i:i+64] for i in range(0, len(body), 64)]
+        lines = [body[i : i + 64] for i in range(0, len(body), 64)]
         return header + "\n" + "\n".join(lines) + "\n" + footer + "\n"
 
     return flat_key

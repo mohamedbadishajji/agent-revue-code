@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 import os
 import json
@@ -29,6 +30,7 @@ def get_blob_service_client():
 
     try:
         from azure.storage.blob import BlobServiceClient
+
         return BlobServiceClient.from_connection_string(connection_string)
     except Exception as e:
         print(f"   ⚠️ Erreur connexion Azure Blob Storage : {str(e)}")
@@ -60,7 +62,9 @@ def get_all_reports() -> list:
             if reports:
                 return reports
         except Exception as e:
-            print(f"   ⚠️ Erreur listing Azure Blob Storage : {str(e)} — fallback local")
+            print(
+                f"   ⚠️ Erreur listing Azure Blob Storage : {str(e)} — fallback local"
+            )
 
     # Priorité 2 : Stockage local (développement)
     if not os.path.exists(REPORTS_DIR):
@@ -121,12 +125,7 @@ def get_report_by_pr(reports: list, pr_number: int, repo_name: str = None) -> di
 BASE_MINUTES_PER_PR = 5
 MINUTES_PER_LINE = 0.1
 
-SEVERITY_TIME_WEIGHTS = {
-    "critical": 8,
-    "high": 5,
-    "medium": 3,
-    "low": 1
-}
+SEVERITY_TIME_WEIGHTS = {"critical": 8, "high": 5, "medium": 3, "low": 1}
 
 
 def estimate_review_time_minutes(report: dict) -> float:
@@ -174,18 +173,23 @@ def calculate_time_saved(reports_or_count) -> dict:
         "total_minutes": total_minutes,
         "hours": hours,
         "minutes": minutes,
-        "formatted": f"{hours}h {minutes}min" if hours > 0 else f"{minutes}min"
+        "formatted": f"{hours}h {minutes}min" if hours > 0 else f"{minutes}min",
     }
 
 
 def calculate_dashboard_stats(reports: list) -> dict:
     if not reports:
         return {
-            "total_prs": 0, "average_score": 0, "total_issues": 0,
-            "score_distribution": {}, "type_distribution": {},
-            "worst_files": [], "score_history": [],
+            "total_prs": 0,
+            "average_score": 0,
+            "total_issues": 0,
+            "score_distribution": {},
+            "type_distribution": {},
+            "worst_files": [],
+            "score_history": [],
             "time_saved": calculate_time_saved([]),
-            "critical_count": 0, "approved_count": 0
+            "critical_count": 0,
+            "approved_count": 0,
         }
 
     # Utiliser la liste dedupliquee pour les stats (une PR = un point de donnee)
@@ -213,9 +217,15 @@ def calculate_dashboard_stats(reports: list) -> dict:
     worst_files = sorted(file_issue_count.items(), key=lambda x: x[1], reverse=True)[:5]
 
     score_history = sorted(
-        [{"pr_number": r.get("pr_number"), "score": r.get("score"), "date": r.get("analyzed_at", "")}
-         for r in pr_list],
-        key=lambda x: x["date"]
+        [
+            {
+                "pr_number": r.get("pr_number"),
+                "score": r.get("score"),
+                "date": r.get("analyzed_at", ""),
+            }
+            for r in pr_list
+        ],
+        key=lambda x: x["date"],
     )
 
     time_saved = calculate_time_saved(pr_list)
@@ -232,7 +242,7 @@ def calculate_dashboard_stats(reports: list) -> dict:
         "score_history": score_history,
         "time_saved": time_saved,
         "critical_count": critical_count,
-        "approved_count": approved_count
+        "approved_count": approved_count,
     }
 
 
@@ -682,12 +692,14 @@ def risk_badge_class(risk_level: str) -> str:
         "HIGH RISK": "high",
         "MEDIUM RISK": "medium",
         "LOW RISK": "low",
-        "CLEAN": "clean"
+        "CLEAN": "clean",
     }
     return mapping.get(risk_level, "medium")
 
 
-def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: str = None) -> str:
+def generate_dashboard_html(
+    stats: dict, reports: list = None, selected_repo: str = None
+) -> str:
     reports = reports or []
     repos = get_all_repos(reports)
     pr_list = get_pr_list(reports)
@@ -951,7 +963,9 @@ def generate_pr_detail_html(report: dict) -> str:
           <div class="issue-fix"><b>Suggestion :</b> {issue.get('suggestion', 'N/A')}</div>
         </div>"""
     if not issue_cards:
-        issue_cards = '<div class="empty-state">Aucun problème détecté sur cette PR. ✅</div>'
+        issue_cards = (
+            '<div class="empty-state">Aucun problème détecté sur cette PR. ✅</div>'
+        )
 
     body = f"""
   <div class="topbar">

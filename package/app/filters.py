@@ -5,17 +5,44 @@ load_dotenv()
 
 # Extensions de code à analyser
 SUPPORTED_EXTENSIONS = [
-    ".py", ".js", ".ts", ".jsx", ".tsx",
-    ".java", ".c", ".cpp", ".cs", ".go",
-    ".rb", ".php", ".swift", ".kt"
+    ".py",
+    ".js",
+    ".ts",
+    ".jsx",
+    ".tsx",
+    ".java",
+    ".c",
+    ".cpp",
+    ".cs",
+    ".go",
+    ".rb",
+    ".php",
+    ".swift",
+    ".kt",
 ]
 
 # Extensions à ignorer
 IGNORED_EXTENSIONS = [
-    ".md", ".lock", ".txt", ".png", ".jpg",
-    ".jpeg", ".gif", ".svg", ".ico", ".pdf",
-    ".zip", ".env", ".csv", ".xml", ".yaml",
-    ".yml", ".toml", ".ini", ".cfg", ".log"
+    ".md",
+    ".lock",
+    ".txt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".pdf",
+    ".zip",
+    ".env",
+    ".csv",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".log",
 ]
 
 # Patterns de fichiers auto-générés à ignorer
@@ -31,18 +58,11 @@ IGNORED_PATTERNS = [
     "dist/",
     "build/",
     ".min.js",
-    ".min.css"
+    ".min.css",
 ]
 
 # Patterns de fichiers de test (REVUE-49 — Bug 2)
-TEST_PATTERNS = [
-    "test_",
-    "_test.",
-    ".test.",
-    ".spec.",
-    "/tests/",
-    "/test/"
-]
+TEST_PATTERNS = ["test_", "_test.", ".test.", ".spec.", "/tests/", "/test/"]
 
 # Correspondance extension -> langage (REVUE-45)
 EXTENSION_TO_LANGUAGE = {
@@ -59,7 +79,7 @@ EXTENSION_TO_LANGUAGE = {
     ".swift": "swift",
     ".kt": "kotlin",
     ".c": "c",
-    ".cpp": "cpp"
+    ".cpp": "cpp",
 }
 
 
@@ -73,6 +93,7 @@ def is_auto_generated(file_path: str) -> bool:
     """Vérifie si un fichier est auto-généré"""
     file_lower = file_path.lower()
     return any(pattern in file_lower for pattern in IGNORED_PATTERNS)
+
 
 def exceeds_max_size(file_data: dict, max_file_size_kb: int = None) -> bool:
     """
@@ -88,7 +109,9 @@ def exceeds_max_size(file_data: dict, max_file_size_kb: int = None) -> bool:
     return size_kb > max_file_size_kb
 
 
-def is_relevant(file_path: str, include_tests: bool = False, languages_enabled: list = None) -> bool:
+def is_relevant(
+    file_path: str, include_tests: bool = False, languages_enabled: list = None
+) -> bool:
     """
     Vérifie si un fichier est pertinent pour l'analyse
     REVUE-45 : Respecte la liste languages_enabled de la config du repo
@@ -122,7 +145,12 @@ def is_relevant(file_path: str, include_tests: bool = False, languages_enabled: 
     return True
 
 
-def filter_files(diff_files: list, include_tests: bool = False, languages_enabled: list = None, max_file_size_kb: int = None) -> list:
+def filter_files(
+    diff_files: list,
+    include_tests: bool = False,
+    languages_enabled: list = None,
+    max_file_size_kb: int = None,
+) -> list:
     """
     Filtre les fichiers non pertinents
     Critère US 2.1 : Les fichiers non pertinents sont filtrés
