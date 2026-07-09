@@ -1,4 +1,3 @@
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -120,9 +119,16 @@ Diff :
 Reponds UNIQUEMENT en JSON selon le format demande. Sans backticks."""
 
 
-def build_test_generation_prompt(file_path: str, language: str, added_lines: list) -> str:
-    functions = "\n".join([line["content"] for line in added_lines
-                          if "def " in line["content"] or "function " in line["content"]])
+def build_test_generation_prompt(
+    file_path: str, language: str, added_lines: list
+) -> str:
+    functions = "\n".join(
+        [
+            line["content"]
+            for line in added_lines
+            if "def " in line["content"] or "function " in line["content"]
+        ]
+    )
 
     return f"""Genere des tests unitaires pour les nouvelles fonctions detectees.
 
@@ -135,10 +141,9 @@ Reponds UNIQUEMENT avec le code de test en {language}, sans explication."""
 
 
 def build_summary_prompt(all_issues: list, pr_title: str) -> str:
-    issues_text = "\n".join([
-        f"- [{issue['severity']}] {issue['description']}"
-        for issue in all_issues
-    ])
+    issues_text = "\n".join(
+        [f"- [{issue['severity']}] {issue['description']}" for issue in all_issues]
+    )
 
     return f"""Genere un resume professionnel de la revue de code pour cette PR.
 
@@ -302,19 +307,20 @@ REGLES GENERALES :
 - Detecter les mauvaises pratiques courantes
 - Detecter les credentials hardcodes
 - Detecter les injections potentielles
-"""
+""",
 }
 
 
-def build_language_specific_prompt(file_path: str, language: str, patch: str, custom_instructions: str = "") -> str:
+def build_language_specific_prompt(
+    file_path: str, language: str, patch: str, custom_instructions: str = ""
+) -> str:
     """
     Construit un prompt optimise selon le langage de programmation
     REVUE-35 : Analyse multi-langages
     REVUE-45 : Inclut les instructions personnalisees du repository
     """
     language_rules = LANGUAGE_SPECIFIC_RULES.get(
-        language,
-        LANGUAGE_SPECIFIC_RULES["unknown"]
+        language, LANGUAGE_SPECIFIC_RULES["unknown"]
     )
 
     custom_section = ""

@@ -16,9 +16,19 @@ DEFAULT_CONFIG = {
     "max_file_size_kb": 1000,
     "custom_instructions": "",
     "languages_enabled": [
-        "python", "javascript", "typescript", "java",
-        "go", "php", "ruby", "csharp", "swift", "kotlin", "c", "cpp"
-    ]
+        "python",
+        "javascript",
+        "typescript",
+        "java",
+        "go",
+        "php",
+        "ruby",
+        "csharp",
+        "swift",
+        "kotlin",
+        "c",
+        "cpp",
+    ],
 }
 
 
@@ -74,7 +84,9 @@ def load_repo_config(repo_name: str) -> dict:
             return validated_config
 
         except Exception:
-            print(f"   ℹ️ Aucun fichier {CONFIG_FILENAME} trouvé — utilisation de la configuration par défaut")
+            print(
+                f"   ℹ️ Aucun fichier {CONFIG_FILENAME} trouvé — utilisation de la configuration par défaut"
+            )
             return get_default_config()
 
     except Exception as e:

@@ -10,19 +10,6 @@ from app.config_loader import load_repo_config, is_path_ignored
 
 load_dotenv()
 
-
-def clean_json_response(response: str) -> dict:
-    """
-    Nettoie et parse la réponse JSON du LLM
-    Gère les backticks markdown
-    """
-    clean = response.strip()
-    if clean.startswith("```"):
-        clean = clean.split("```")[1]
-        if clean.startswith("json"):
-            clean = clean[4:]
-    return json.loads(clean.strip())
-
 MAX_TOTAL_LINES = 500
 MAX_FILES_WHEN_LARGE = 10
 
@@ -60,6 +47,20 @@ def limit_files_for_large_pr(parsed_files: list, max_files: int = MAX_FILES_WHEN
     ignored_count = len(parsed_files) - len(limited_files)
 
     return limited_files, ignored_count
+
+
+def clean_json_response(response: str) -> dict:
+    """
+    Nettoie et parse la réponse JSON du LLM
+    Gère les backticks markdown
+    """
+    clean = response.strip()
+    if clean.startswith("```"):
+        clean = clean.split("```")[1]
+        if clean.startswith("json"):
+            clean = clean[4:]
+    return json.loads(clean.strip())
+
 
 def analyze_file(file_data: dict, pr_title: str, custom_instructions: str = "") -> dict:
     """
@@ -103,11 +104,13 @@ def analyze_file(file_data: dict, pr_title: str, custom_instructions: str = "") 
         print(f"   Erreur analyse {file_path} : {str(e)}")
         return {"issues": [], "summary": f"Erreur lors de l'analyse : {str(e)}"}
 
+
 def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests: bool = False) -> dict:
     """
     Analyse complète d'une PR
     Orchestre toutes les étapes de l'analyse
     REVUE-44 : Utilise la configuration personnalisée du repo
+    REVUE-48 : Gere les PRs volumineuses
     """
     from app.scoring import calculate_severity_score, generate_score_report
 
@@ -129,18 +132,26 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     print("3 Filtrage des fichiers...")
     use_include_tests = config["include_tests"] or include_tests
     filtered_files = filter_files(
-    parsed_files,
-    include_tests=use_include_tests,
-    languages_enabled=config.get("languages_enabled"),
-    max_file_size_kb=config.get("max_file_size_kb")
-)
-
-    # Filtrer les chemins ignorés selon la config (REVUE-44)
-    filtered_files = [
-        f for f in filtered_files
-        if not is_path_ignored(f["file_path"], config["ignored_paths"])
-    ]
+        parsed_files,
+        include_tests=use_include_tests,
+        languages_enabled=config.get("languages_enabled"),
+        max_file_size_kb=config.get("max_file_size_kb")
+    )
     print(f"   ✅ {len(filtered_files)} fichier(s) après filtrage config")
+
+    if not filtered_files:
+        print("Aucun fichier pertinent a analyser")
+        return {
+            "pr_number": pr_number,
+            "repo_name": repo_name,
+            "total_issues": 0,
+            "issues": [],
+            "summary": "Aucun fichier de code a analyser.",
+            "scoring": calculate_severity_score([]),
+            "score_report": generate_score_report([], repo_name, pr_number),
+            "pr_size_warning": None,
+            "file_line_counts": {}
+        }
 
     # Étape 3.5 : Vérifier la taille de la PR (REVUE-48)
     print("3.5 Verification de la taille de la PR...")
@@ -159,18 +170,6 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
         print(f"   ✅ Analyse limitee a {len(filtered_files)} fichier(s) prioritaires")
     else:
         print(f"   ✅ Taille de PR normale : {size_info['total_lines']} lignes")
-
-    if not filtered_files:
-        print("Aucun fichier pertinent a analyser")
-        return {
-            "pr_number": pr_number,
-            "repo_name": repo_name,
-            "total_issues": 0,
-            "issues": [],
-            "summary": "Aucun fichier de code a analyser.",
-            "scoring": calculate_severity_score([]),
-            "score_report": generate_score_report([], repo_name, pr_number)
-        }
 
     # Étape 4 : Chunking si nécessaire
     print("4 Chunking du diff...")
@@ -204,6 +203,12 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
     scoring = calculate_severity_score(all_issues)
     score_report = generate_score_report(all_issues, repo_name, pr_number)
 
+    # Capturer le nombre exact de lignes ajoutées par fichier (pour temps gagne precis)
+    file_line_counts = {
+        f["file_path"]: len(f.get("added_lines", []))
+        for f in filtered_files
+    }
+
     print(f"\nAnalyse terminee — {len(all_issues)} probleme(s) au total")
     print(f"Score de risque : {scoring['score']}/100 — {scoring['risk_level']['emoji']} {scoring['risk_level']['level']}")
 
@@ -220,5 +225,6 @@ def analyze_pr(repo_name: str, pr_number: int, pr_title: str = "", include_tests
         "summary": final_summary,
         "scoring": scoring,
         "score_report": score_report,
-        "pr_size_warning": pr_size_warning
+        "pr_size_warning": pr_size_warning,
+        "file_line_counts": file_line_counts
     }

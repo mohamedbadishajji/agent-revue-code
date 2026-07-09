@@ -2,8 +2,7 @@ import os
 import re
 from dotenv import load_dotenv
 from app.github_client import get_github_client
-from app.rate_limiter import retry_with_backoff, check_rate_limit, batch_post_comments
-from app.duplicate_checker import filter_duplicate_issues
+from app.rate_limiter import check_rate_limit, batch_post_comments
 
 load_dotenv()
 
@@ -22,7 +21,7 @@ def get_patch_position(patch: str, target_line: int) -> int:
         position += 1
 
         if line.startswith("@@"):
-            match = re.search(r'\+(\d+)', line)
+            match = re.search(r"\+(\d+)", line)
             if match:
                 current_line = int(match.group(1)) - 1
 
@@ -42,12 +41,7 @@ def format_comment(issue: dict) -> str:
     Formate un commentaire avec la syntaxe GitHub Markdown
     REVUE-41 : Inclut la suggestion de code GitHub native si disponible
     """
-    severity_emoji = {
-        "critical": "🔴",
-        "high": "🟠",
-        "medium": "🟡",
-        "low": "🟢"
-    }
+    severity_emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
 
     emoji = severity_emoji.get(issue.get("severity", "low"), "⚪")
     severity = issue.get("severity", "unknown").upper()
@@ -81,14 +75,15 @@ def format_comment(issue: dict) -> str:
     return comment
 
 
-def post_inline_comment(repo_name: str, pr_number: int, issue: dict, patch: str) -> bool:
+def post_inline_comment(
+    repo_name: str, pr_number: int, issue: dict, patch: str
+) -> bool:
     """
     Poste un commentaire inline sur une ligne spécifique de la PR
     REVUE-12/39 : Publication des commentaires inline
     REVUE-20/47 : Mapping de ligne incorrect — version améliorée
     """
     try:
-        from app.validator import validate_line_mapping
 
         client = get_github_client(INSTALLATION_ID)
         repo = client.get_repo(repo_name)
@@ -124,7 +119,7 @@ def post_inline_comment(repo_name: str, pr_number: int, issue: dict, patch: str)
             commit=commit,
             path=issue.get("file_path"),
             line=line_number,
-            side="RIGHT"
+            side="RIGHT",
         )
 
         print(f"   ✅ Commentaire posté — {issue['file_path']} ligne {line_number}")
@@ -150,7 +145,9 @@ def post_file_comment(repo_name: str, pr_number: int, issue: dict) -> bool:
         comment_body += f"\n\n> **Note :** Problème détecté dans `{issue.get('file_path')}` ligne {issue.get('line')}"
 
         pr.create_issue_comment(comment_body)
-        print(f"   ✅ Commentaire global posté pour {issue.get('file_path')} ligne {issue.get('line')}")
+        print(
+            f"   ✅ Commentaire global posté pour {issue.get('file_path')} ligne {issue.get('line')}"
+        )
         return True
 
     except Exception as e:
@@ -158,7 +155,15 @@ def post_file_comment(repo_name: str, pr_number: int, issue: dict) -> bool:
         return False
 
 
-def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issues: int, issues: list = None, scoring: dict = None, score_report: str = None) -> bool:
+def post_global_summary(
+    repo_name: str,
+    pr_number: int,
+    summary: str,
+    total_issues: int,
+    issues: list = None,
+    scoring: dict = None,
+    score_report: str = None,
+) -> bool:
     """
     Poste le résumé global de l'analyse sur la PR
     REVUE-13 : Résumé global enrichi
@@ -235,7 +240,9 @@ def post_global_summary(repo_name: str, pr_number: int, summary: str, total_issu
         return False
 
 
-def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, diff_files: list) -> None:
+def post_all_comments(
+    repo_name: str, pr_number: int, analysis_result: dict, diff_files: list
+) -> None:
     """
     Poste tous les commentaires et le résumé global
     REVUE-22 : Avec rate limiting et regroupement
@@ -256,6 +263,7 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
     # Vérifier le rate limit avant de commencer
     from app.github_client import get_github_client
     from app.duplicate_checker import filter_duplicate_issues
+
     client = get_github_client(INSTALLATION_ID)
     check_rate_limit(client)
 
@@ -271,7 +279,7 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
             total_issues=total_issues,
             issues=issues,
             scoring=scoring,
-            score_report=score_report
+            score_report=score_report,
         )
         return
 
@@ -280,19 +288,21 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
     for issue in issues:
         file_path = issue.get("file_path")
         patch = patch_by_file.get(file_path, "")
-        comments_to_post.append({
-            "repo_name": repo_name,
-            "pr_number": pr_number,
-            "issue": issue,
-            "patch": patch
-        })
+        comments_to_post.append(
+            {
+                "repo_name": repo_name,
+                "pr_number": pr_number,
+                "issue": issue,
+                "patch": patch,
+            }
+        )
 
     # Poster par lots avec rate limiting
     posted = batch_post_comments(
         post_func=post_inline_comment,
         comments=comments_to_post,
         batch_size=5,
-        delay=0.5
+        delay=0.5,
     )
 
     print(f"\n✅ {posted}/{len(issues)} commentaires postés")
@@ -305,5 +315,5 @@ def post_all_comments(repo_name: str, pr_number: int, analysis_result: dict, dif
         total_issues=total_issues,
         issues=issues,
         scoring=scoring,
-        score_report=score_report
+        score_report=score_report,
     )

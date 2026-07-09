@@ -1,14 +1,23 @@
 import re
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
 # Mots vagues qui indiquent une hallucination potentielle
 VAGUE_KEYWORDS = [
-    "pourrait", "peut-être", "possible", "potentiellement",
-    "il semble", "on dirait", "probablement", "éventuellement",
-    "could", "might", "perhaps", "possibly", "seems like"
+    "pourrait",
+    "peut-être",
+    "possible",
+    "potentiellement",
+    "il semble",
+    "on dirait",
+    "probablement",
+    "éventuellement",
+    "could",
+    "might",
+    "perhaps",
+    "possibly",
+    "seems like",
 ]
 
 # Longueur minimale d'une description valide
@@ -25,7 +34,7 @@ def get_lines_in_patch(patch: str) -> set:
 
     for line in patch.splitlines():
         if line.startswith("@@"):
-            match = re.search(r'\+(\d+)', line)
+            match = re.search(r"\+(\d+)", line)
             if match:
                 current_line = int(match.group(1)) - 1
 
@@ -49,17 +58,17 @@ def get_functions_in_patch(patch: str) -> set:
     for line in patch.splitlines():
         if line.startswith("+"):
             # Python
-            match = re.search(r'def\s+(\w+)\s*\(', line)
+            match = re.search(r"def\s+(\w+)\s*\(", line)
             if match:
                 functions.add(match.group(1))
 
             # JavaScript
-            match = re.search(r'function\s+(\w+)\s*\(', line)
+            match = re.search(r"function\s+(\w+)\s*\(", line)
             if match:
                 functions.add(match.group(1))
 
             # Arrow function
-            match = re.search(r'const\s+(\w+)\s*=\s*\(', line)
+            match = re.search(r"const\s+(\w+)\s*=\s*\(", line)
             if match:
                 functions.add(match.group(1))
 
@@ -91,7 +100,10 @@ def validate_issue(issue: dict, patch: str) -> tuple:
     # Validation 1 : Numéro de ligne valide
     valid_lines = get_lines_in_patch(patch)
     if line and valid_lines and line not in valid_lines:
-        return False, f"Ligne {line} introuvable dans le diff (hallucination potentielle)"
+        return (
+            False,
+            f"Ligne {line} introuvable dans le diff (hallucination potentielle)",
+        )
 
     # Validation 2 : Description pas trop vague
     if is_vague_description(description):
@@ -132,6 +144,7 @@ def validate_issues(issues: list, patch: str) -> list:
 
     return valid_issues
 
+
 def get_added_lines(patch: str) -> dict:
     """
     Extrait uniquement les lignes AJOUTÉES du patch avec leur position
@@ -145,7 +158,7 @@ def get_added_lines(patch: str) -> dict:
         patch_position += 1
 
         if line.startswith("@@"):
-            match = re.search(r'\+(\d+)', line)
+            match = re.search(r"\+(\d+)", line)
             if match:
                 current_line = int(match.group(1)) - 1
 
@@ -190,7 +203,9 @@ def validate_line_mapping(issues: list, patch: str) -> list:
                 issue["line"] = closest_line
                 issue["line_mapping_corrected"] = True
                 validated.append(issue)
-                print(f"   ⚠️ Ligne {line} invalide → corrigée vers ligne {closest_line}")
+                print(
+                    f"   ⚠️ Ligne {line} invalide → corrigée vers ligne {closest_line}"
+                )
             else:
                 print(f"   ❌ Ligne {line} impossible à mapper — commentaire global")
                 issue["use_global_comment"] = True

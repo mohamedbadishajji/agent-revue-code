@@ -8,10 +8,19 @@ INSTALLATION_ID = int(os.getenv("GITHUB_INSTALLATION_ID"))
 
 # Définition des labels avec leurs couleurs (format hex sans #)
 LABEL_DEFINITIONS = {
-    "security-critical": {"color": "B60205", "description": "Vulnérabilité de sécurité critique détectée"},
+    "security-critical": {
+        "color": "B60205",
+        "description": "Vulnérabilité de sécurité critique détectée",
+    },
     "has-bugs": {"color": "D93F0B", "description": "Bugs détectés par l'agent IA"},
-    "needs-refactor": {"color": "FBCA04", "description": "Code smells détectés — refactoring recommandé"},
-    "approved-by-ai": {"color": "0E8A16", "description": "Aucun problème détecté par l'agent IA"},
+    "needs-refactor": {
+        "color": "FBCA04",
+        "description": "Code smells détectés — refactoring recommandé",
+    },
+    "approved-by-ai": {
+        "color": "0E8A16",
+        "description": "Aucun problème détecté par l'agent IA",
+    },
     "major-issues": {"color": "5319E7", "description": "Plus de 5 problèmes détectés"},
 }
 
@@ -36,7 +45,8 @@ def determine_labels(issues: list) -> list:
         for issue in issues
     )
     has_smells = any(
-        issue.get("type") in ["bad_naming", "duplicate_code", "long_function", "magic_number"]
+        issue.get("type")
+        in ["bad_naming", "duplicate_code", "long_function", "magic_number"]
         for issue in issues
     )
 
@@ -67,7 +77,7 @@ def ensure_labels_exist(repo) -> None:
                 repo.create_label(
                     name=label_name,
                     color=props["color"],
-                    description=props["description"]
+                    description=props["description"],
                 )
                 print(f"   ✅ Label créé : {label_name}")
             except Exception as e:

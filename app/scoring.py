@@ -1,4 +1,3 @@
-import os
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -8,21 +7,16 @@ load_dotenv()
 # ══════════════════════════════════════════════
 
 # Points de base par sévérité
-SEVERITY_BASE_POINTS = {
-    "critical": 10,
-    "high": 5,
-    "medium": 2,
-    "low": 1
-}
+SEVERITY_BASE_POINTS = {"critical": 10, "high": 5, "medium": 2, "low": 1}
 
 # Multiplicateurs par type de problème
 TYPE_MULTIPLIERS = {
-    "security": 2.0,      # Sécurité → double les points
-    "bug": 1.5,           # Bug → augmente de 50%
-    "logic": 1.2,         # Logique → augmente de 20%
-    "performance": 1.0,   # Performance → points normaux
-    "style": 0.5,         # Style → réduit de 50%
-    "unknown": 1.0        # Inconnu → points normaux
+    "security": 2.0,  # Sécurité → double les points
+    "bug": 1.5,  # Bug → augmente de 50%
+    "logic": 1.2,  # Logique → augmente de 20%
+    "performance": 1.0,  # Performance → points normaux
+    "style": 0.5,  # Style → réduit de 50%
+    "unknown": 1.0,  # Inconnu → points normaux
 }
 
 # Bonus OWASP pour les vulnérabilités documentées
@@ -54,7 +48,9 @@ def calculate_issue_points(issue: dict) -> float:
 
     # Bonus OWASP si vulnérabilité documentée
     owasp_bonus = 0
-    if issue.get("owasp") or (issue_type == "security" and severity in ["critical", "high"]):
+    if issue.get("owasp") or (
+        issue_type == "security" and severity in ["critical", "high"]
+    ):
         owasp_bonus = OWASP_BONUS
 
     # Calcul final
@@ -69,11 +65,7 @@ def get_risk_level(score: int) -> dict:
     """
     for min_score, max_score, level, emoji, description in RISK_LEVELS:
         if min_score <= score <= max_score:
-            return {
-                "level": level,
-                "emoji": emoji,
-                "description": description
-            }
+            return {"level": level, "emoji": emoji, "description": description}
     return {"level": "CRITICAL RISK", "emoji": "🔴", "description": "Risque critique"}
 
 
@@ -91,10 +83,10 @@ def calculate_severity_score(issues: list) -> dict:
                 "critical": {"count": 0, "points": 0},
                 "high": {"count": 0, "points": 0},
                 "medium": {"count": 0, "points": 0},
-                "low": {"count": 0, "points": 0}
+                "low": {"count": 0, "points": 0},
             },
             "by_type": {},
-            "total_issues": 0
+            "total_issues": 0,
         }
 
     # Calcul des points par issue
@@ -103,7 +95,7 @@ def calculate_severity_score(issues: list) -> dict:
         "critical": {"count": 0, "points": 0},
         "high": {"count": 0, "points": 0},
         "medium": {"count": 0, "points": 0},
-        "low": {"count": 0, "points": 0}
+        "low": {"count": 0, "points": 0},
     }
     by_type = {}
 
@@ -135,7 +127,7 @@ def calculate_severity_score(issues: list) -> dict:
         "risk_level": risk,
         "breakdown": breakdown,
         "by_type": by_type,
-        "total_issues": len(issues)
+        "total_issues": len(issues),
     }
 
 
@@ -171,7 +163,9 @@ _{risk['description']}_
 |------|--------|--------|"""
 
     for issue_type, data in by_type.items():
-        report += f"\n| {issue_type} | {data['count']} | {round(data['points'], 1)} pts |"
+        report += (
+            f"\n| {issue_type} | {data['count']} | {round(data['points'], 1)} pts |"
+        )
 
     report += f"""
 

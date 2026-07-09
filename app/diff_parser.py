@@ -1,4 +1,3 @@
-from github import GithubIntegration
 from dotenv import load_dotenv
 import os
 
@@ -13,8 +12,18 @@ SUPPORTED_EXTENSIONS = [".py", ".js", ".ts", ".jsx", ".tsx"]
 
 # Extensions à ignorer (Bug 1 — filtrage préventif)
 IGNORED_EXTENSIONS = [
-    ".md", ".lock", ".txt", ".png", ".jpg", ".jpeg",
-    ".gif", ".svg", ".ico", ".pdf", ".zip", ".env"
+    ".md",
+    ".lock",
+    ".txt",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".pdf",
+    ".zip",
+    ".env",
 ]
 
 
@@ -38,7 +47,7 @@ def get_language(file_path: str) -> str:
         ".cpp": "cpp",
         ".cc": "cpp",
         ".h": "c",
-        ".hpp": "cpp"
+        ".hpp": "cpp",
     }
     return languages.get(ext, "unknown")
 
@@ -67,14 +76,16 @@ def extract_diff(repo_name: str, pr_number: int) -> list:
         if not file.patch:
             continue
 
-        diff_files.append({
-            "file_path": file.filename,
-            "language": get_language(file.filename),
-            "patch": file.patch,
-            "additions": file.additions,
-            "deletions": file.deletions,
-            "status": file.status  # added, modified, removed
-        })
+        diff_files.append(
+            {
+                "file_path": file.filename,
+                "language": get_language(file.filename),
+                "patch": file.patch,
+                "additions": file.additions,
+                "deletions": file.deletions,
+                "status": file.status,  # added, modified, removed
+            }
+        )
 
     print(f"✅ {len(diff_files)} fichiers avec diff récupérés")
     return diff_files
@@ -98,29 +109,34 @@ def parse_diff(diff_files: list) -> list:
             # Extraire le numéro de ligne depuis l'en-tête du hunk
             if line.startswith("@@"):
                 import re
-                match = re.search(r'\+(\d+)', line)
+
+                match = re.search(r"\+(\d+)", line)
                 if match:
                     current_line = int(match.group(1)) - 1
 
             elif line.startswith("+") and not line.startswith("+++"):
                 current_line += 1
-                added_lines.append({
-                    "line_number": current_line,
-                    "content": line[1:],  # Enlever le +
-                    "patch_position": patch_position  # Pour Bug 3
-                })
+                added_lines.append(
+                    {
+                        "line_number": current_line,
+                        "content": line[1:],  # Enlever le +
+                        "patch_position": patch_position,  # Pour Bug 3
+                    }
+                )
 
             elif not line.startswith("-"):
                 current_line += 1
 
-        parsed_files.append({
-            "file_path": file_data["file_path"],
-            "language": file_data["language"],
-            "patch": patch,
-            "added_lines": added_lines,
-            "token_count": estimate_tokens(patch),
-            "status": file_data["status"]
-        })
+        parsed_files.append(
+            {
+                "file_path": file_data["file_path"],
+                "language": file_data["language"],
+                "patch": patch,
+                "added_lines": added_lines,
+                "token_count": estimate_tokens(patch),
+                "status": file_data["status"],
+            }
+        )
 
     return parsed_files
 
@@ -139,7 +155,9 @@ def chunk_diff(parsed_files: list, max_tokens: int = MAX_TOKENS) -> list:
 
         # Si un seul fichier dépasse la limite → on l'ignore avec avertissement
         if file_tokens > max_tokens:
-            print(f"⚠️ Fichier {file_data['file_path']} trop grand ({file_tokens} tokens) — ignoré")
+            print(
+                f"⚠️ Fichier {file_data['file_path']} trop grand ({file_tokens} tokens) — ignoré"
+            )
             continue
 
         # Si ajouter ce fichier dépasse la limite → nouveau chunk

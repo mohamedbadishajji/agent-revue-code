@@ -20,7 +20,7 @@ def get_bedrock_client():
         service_name="bedrock-runtime",
         region_name=AWS_REGION,
         aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
     )
 
 
@@ -36,17 +36,14 @@ def invoke_llm(prompt: str, system_prompt: str = None, max_tokens: int = 4096) -
     body = {
         "anthropic_version": "bedrock-2023-05-31",
         "max_tokens": max_tokens,
-        "messages": messages
+        "messages": messages,
     }
 
     if system_prompt:
         body["system"] = system_prompt
 
     try:
-        response = client.invoke_model(
-            modelId=MODEL_ID,
-            body=json.dumps(body)
-        )
+        response = client.invoke_model(modelId=MODEL_ID, body=json.dumps(body))
         response_body = json.loads(response["body"].read())
         return response_body["content"][0]["text"]
 

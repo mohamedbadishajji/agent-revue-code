@@ -4,7 +4,6 @@ import hmac
 import hashlib
 import os
 from fastapi.responses import HTMLResponse
-from app.dashboard import get_all_reports, calculate_dashboard_stats, generate_dashboard_html
 
 load_dotenv()
 
@@ -14,11 +13,7 @@ WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
 
 
 def verify_signature(payload: bytes, signature: str) -> bool:
-    mac = hmac.new(
-        WEBHOOK_SECRET.encode(),
-        msg=payload,
-        digestmod=hashlib.sha256
-    )
+    mac = hmac.new(WEBHOOK_SECRET.encode(), msg=payload, digestmod=hashlib.sha256)
     expected = f"sha256={mac.hexdigest()}"
     return hmac.compare_digest(expected, signature)
 
@@ -39,11 +34,7 @@ def process_pull_request(repo_name: str, pr_number: int, pr_title: str):
         from app.quality_report import generate_quality_report_json, save_quality_report
 
         # Etape 1 : Analyse complete (LLM + scoring + config repo)
-        result = analyze_pr(
-            repo_name=repo_name,
-            pr_number=pr_number,
-            pr_title=pr_title
-        )
+        result = analyze_pr(repo_name=repo_name, pr_number=pr_number, pr_title=pr_title)
 
         # Etape 2 : Recuperer les diffs pour le mapping des lignes
         diff_files = extract_diff(repo_name, pr_number)
@@ -54,22 +45,14 @@ def process_pull_request(repo_name: str, pr_number: int, pr_title: str):
             repo_name=repo_name,
             pr_number=pr_number,
             analysis_result=result,
-            diff_files=parsed_files
+            diff_files=parsed_files,
         )
 
         # Etape 4 : Appliquer les labels automatiques
-        apply_labels(
-            repo_name=repo_name,
-            pr_number=pr_number,
-            issues=result["issues"]
-        )
+        apply_labels(repo_name=repo_name, pr_number=pr_number, issues=result["issues"])
 
         # Etape 5 : Soumettre la review automatique (approve/request changes)
-        submit_review(
-            repo_name=repo_name,
-            pr_number=pr_number,
-            issues=result["issues"]
-        )
+        submit_review(repo_name=repo_name, pr_number=pr_number, issues=result["issues"])
 
         # Etape 6 : Generer et sauvegarder le rapport qualite (pour le dashboard)
         report_json = generate_quality_report_json(
@@ -78,14 +61,17 @@ def process_pull_request(repo_name: str, pr_number: int, pr_title: str):
             pr_title=pr_title,
             issues=result["issues"],
             scoring=result["scoring"],
-            file_line_counts=result.get("file_line_counts", {})
+            file_line_counts=result.get("file_line_counts", {}),
         )
         save_quality_report(report_json)
 
         print(f"\n✅ TRAITEMENT AUTOMATIQUE TERMINE — PR #{pr_number}\n")
 
     except Exception as e:
-        print(f"\n❌ ERREUR lors du traitement automatique de la PR #{pr_number} : {str(e)}\n")
+        print(
+            f"\n❌ ERREUR lors du traitement automatique de la PR #{pr_number} : {str(e)}\n"
+        )
+
 
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 5
@@ -106,14 +92,19 @@ def process_pull_request_with_retry(repo_name: str, pr_number: int, pr_title: st
             return
 
         except Exception as e:
-            print(f"❌ Echec tentative {attempt}/{MAX_RETRY_ATTEMPTS} — PR #{pr_number} : {str(e)}")
+            print(
+                f"❌ Echec tentative {attempt}/{MAX_RETRY_ATTEMPTS} — PR #{pr_number} : {str(e)}"
+            )
 
             if attempt < MAX_RETRY_ATTEMPTS:
                 wait_time = RETRY_DELAY_SECONDS * attempt
                 print(f"⏳ Nouvelle tentative dans {wait_time}s...")
                 time.sleep(wait_time)
             else:
-                print(f"🚨 ABANDON apres {MAX_RETRY_ATTEMPTS} tentatives — PR #{pr_number}")
+                print(
+                    f"🚨 ABANDON apres {MAX_RETRY_ATTEMPTS} tentatives — PR #{pr_number}"
+                )
+
 
 SUPPORTED_PR_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"]
 
@@ -167,7 +158,12 @@ async def dashboard(repo: str = None):
     Dashboard de métriques de revue de code
     REVUE-46 : Filtrable par repository
     """
-    from app.dashboard import get_all_reports, filter_reports_by_repo, calculate_dashboard_stats, generate_dashboard_html
+    from app.dashboard import (
+        get_all_reports,
+        filter_reports_by_repo,
+        calculate_dashboard_stats,
+        generate_dashboard_html,
+    )
 
     all_reports = get_all_reports()
     filtered_reports = filter_reports_by_repo(all_reports, repo)

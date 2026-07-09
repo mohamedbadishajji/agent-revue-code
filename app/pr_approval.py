@@ -27,8 +27,8 @@ def determine_review_action(issues: list, severity_threshold: str = "high") -> s
     # REVUE-40 : Bloquer immédiatement si UNE SEULE faille de sécurité
     # atteint ou dépasse le seuil configuré
     has_security_issue = any(
-        issue.get("type") == "security" and
-        severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
+        issue.get("type") == "security"
+        and severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
         for issue in issues
     )
 
@@ -37,8 +37,8 @@ def determine_review_action(issues: list, severity_threshold: str = "high") -> s
 
     # Bugs non liés à la sécurité qui atteignent le seuil configuré
     has_blocking_bug = any(
-        issue.get("type") != "security" and
-        severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
+        issue.get("type") != "security"
+        and severity_order.get(issue.get("severity", "low"), 1) >= threshold_level
         for issue in issues
     )
 
@@ -97,10 +97,7 @@ def submit_review(repo_name: str, pr_number: int, issues: list) -> str:
         print(f"   Seuil configuré : {severity_threshold}")
         print(f"   Action déterminée : {action}")
 
-        pr.create_review(
-            body=message,
-            event=action
-        )
+        pr.create_review(body=message, event=action)
 
         print(f"   ✅ Review soumise avec succès : {action}")
         return action
