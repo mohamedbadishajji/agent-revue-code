@@ -80,6 +80,16 @@ EXTENSION_TO_LANGUAGE = {
     ".kt": "kotlin",
     ".c": "c",
     ".cpp": "cpp",
+    ".rs": "rust",
+    ".dart": "dart",
+    ".scala": "scala",
+    ".r": "r",
+    ".sh": "bash",
+    ".pl": "perl",
+    ".lua": "lua",
+    ".sql": "sql",
+    ".vue": "javascript",
+    ".mjs": "javascript",
 }
 
 
@@ -132,13 +142,13 @@ def is_relevant(
     if not include_tests and is_test_file(file_path):
         return False
 
-    # Garder uniquement les extensions supportées
-    if ext not in SUPPORTED_EXTENSIONS:
-        return False
+    # REVUE-35 (extension) : Accepter TOUS les langages, pas seulement la liste initiale
+    # Les langages non specifiquement configures utilisent des regles generiques
+    file_language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
 
-    # Filtrer selon la config languages_enabled du repo (REVUE-45)
-    if languages_enabled:
-        file_language = EXTENSION_TO_LANGUAGE.get(ext, "unknown")
+    # Filtrer selon la config languages_enabled du repo UNIQUEMENT si elle est definie
+    # ET que le fichier a un langage reconnu (sinon on le laisse passer par defaut)
+    if languages_enabled and file_language != "unknown":
         if file_language not in languages_enabled:
             return False
 
