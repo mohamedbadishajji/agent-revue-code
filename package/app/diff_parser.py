@@ -48,8 +48,22 @@ def get_language(file_path: str) -> str:
         ".cc": "cpp",
         ".h": "c",
         ".hpp": "cpp",
+        ".rs": "rust",
+        ".dart": "dart",
+        ".scala": "scala",
+        ".r": "r",
+        ".sh": "bash",
+        ".pl": "perl",
+        ".lua": "lua",
+        ".sql": "sql",
+        ".vue": "javascript",
+        ".mjs": "javascript"
     }
-    return languages.get(ext, "unknown")
+    if ext in languages:
+        return languages[ext]
+    elif ext:
+        return ext.replace(".", "")
+    return "unknown"
 
 
 def estimate_tokens(text: str) -> int:
