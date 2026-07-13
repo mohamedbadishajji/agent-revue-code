@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Request, HTTPException, BackgroundTasks, Response, Cookie
 from dotenv import load_dotenv
 import hmac
 import hashlib
@@ -16,8 +16,8 @@ OAUTH_CLIENT_ID = os.getenv("GITHUB_OAUTH_CLIENT_ID")
 OAUTH_CLIENT_SECRET = os.getenv("GITHUB_OAUTH_CLIENT_SECRET")
 OAUTH_REDIRECT_URI = "https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/callback"
 
-# Stockage temporaire en memoire du token utilisateur (session simplifiee)
-user_session = {"access_token": None}
+# Stockage temporaire en memoire des tokens, un par utilisateur (session_id -> token)
+user_sessions = {}
 
 
 def verify_signature(payload: bytes, signature: str) -> bool:
@@ -160,29 +160,39 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     return {"message": "Événement ignoré"}
 
 @app.get("/auth/login")
-async def auth_login():
+async def auth_login(response: Response):
     """
     Redirige vers GitHub pour connexion OAuth
-    Permet ensuite de lister tous les repos de l'utilisateur
+    Cree un cookie de session unique pour cet utilisateur
     """
-    state = py_secrets.token_urlsafe(16)
+    session_id = py_secrets.token_urlsafe(32)
+
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={OAUTH_CLIENT_ID}"
         f"&redirect_uri={OAUTH_REDIRECT_URI}"
-        f"&state={state}"
+        f"&state={session_id}"
     )
-    return RedirectResponse(github_auth_url)
+
+    redirect = RedirectResponse(github_auth_url)
+    redirect.set_cookie(key="session_id", value=session_id, httponly=True, max_age=3600)
+    return redirect
 
 
 @app.get("/auth/callback")
-async def auth_callback(code: str = None, state: str = None):
+async def auth_callback(code: str = None, state: str = None, session_id: str = Cookie(None)):
     """
     Recoit le retour de GitHub apres connexion
     Echange le code temporaire contre un token d'acces
+    Stocke le token dans LA session precise de cet utilisateur
     """
     if not code:
         return {"error": "Code manquant"}
+
+    # Utilise le state (envoye a GitHub) ou le cookie comme identifiant de session
+    effective_session_id = state or session_id
+    if not effective_session_id:
+        return {"error": "Session invalide"}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -201,19 +211,24 @@ async def auth_callback(code: str = None, state: str = None):
         if not access_token:
             return {"error": "Impossible d'obtenir le token", "details": data}
 
-        user_session["access_token"] = access_token
+        user_sessions[effective_session_id] = {"access_token": access_token}
 
-    return RedirectResponse("/repos")
+    redirect = RedirectResponse("/repos")
+    redirect.set_cookie(key="session_id", value=effective_session_id, httponly=True, max_age=3600)
+    return redirect
 
 
 @app.get("/repos", response_class=HTMLResponse)
-async def list_repos():
+async def list_repos(session_id: str = Cookie(None)):
     """
     Liste tous les repos de l'utilisateur connecte via GitHub OAuth
     Indique lesquels ont deja l'agent installe
+    Utilise LA session precise de cet utilisateur (cookie)
     """
-    if not user_session.get("access_token"):
+    if not session_id or session_id not in user_sessions:
         return RedirectResponse("/auth/login")
+
+    access_token = user_sessions[session_id]["access_token"]
 
     from app.dashboard import render_page_shell
 
@@ -221,7 +236,7 @@ async def list_repos():
         response = await client.get(
             "https://api.github.com/user/repos",
             headers={
-                "Authorization": f"Bearer {user_session['access_token']}",
+                "Authorization": f"Bearer {access_token}",
                 "Accept": "application/vnd.github+json",
             },
             params={"per_page": 100},
