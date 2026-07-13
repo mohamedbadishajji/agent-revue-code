@@ -208,6 +208,7 @@ async def auth_callback(code: str = None, state: str = None, session_id: str = C
         )
         data = response.json()
         access_token = data.get("access_token")
+        print(f"DEBUG TOKEN RESPONSE: {data}")
 
         if not access_token:
             return {"error": "Impossible d'obtenir le token", "details": data}
