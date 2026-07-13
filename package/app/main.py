@@ -230,11 +230,26 @@ async def list_repos():
 
     installed_repos = set()
     try:
-        installed_client = get_github_client(int(os.getenv("GITHUB_INSTALLATION_ID")))
-        for repo in installed_client.get_installation(int(os.getenv("GITHUB_INSTALLATION_ID"))).get_repos():
-            installed_repos.add(repo.full_name)
-    except Exception:
-        pass
+        from app.github_client import PRIVATE_KEY, APP_ID
+        from github import GithubIntegration
+
+        integration = GithubIntegration(APP_ID, PRIVATE_KEY)
+        installation_id = int(os.getenv("GITHUB_INSTALLATION_ID"))
+        install_token = integration.get_access_token(installation_id).token
+
+        async with httpx.AsyncClient() as install_client:
+            install_response = await install_client.get(
+                "https://api.github.com/installation/repositories",
+                headers={
+                    "Authorization": f"Bearer {install_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+            install_data = install_response.json()
+            for repo in install_data.get("repositories", []):
+                installed_repos.add(repo["full_name"])
+    except Exception as e:
+        print(f"Erreur recuperation repos installes : {str(e)}")
 
     rows = ""
     for repo in repos:
