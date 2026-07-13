@@ -3,13 +3,21 @@ from dotenv import load_dotenv
 import hmac
 import hashlib
 import os
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
+import httpx
+import secrets as py_secrets
 
 load_dotenv()
 
 app = FastAPI()
 
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET")
+OAUTH_CLIENT_ID = os.getenv("GITHUB_OAUTH_CLIENT_ID")
+OAUTH_CLIENT_SECRET = os.getenv("GITHUB_OAUTH_CLIENT_SECRET")
+OAUTH_REDIRECT_URI = "https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/callback"
+
+# Stockage temporaire en memoire du token utilisateur (session simplifiee)
+user_session = {"access_token": None}
 
 
 def verify_signature(payload: bytes, signature: str) -> bool:
@@ -151,6 +159,112 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     return {"message": "Événement ignoré"}
 
+@app.get("/auth/login")
+async def auth_login():
+    """
+    Redirige vers GitHub pour connexion OAuth
+    Permet ensuite de lister tous les repos de l'utilisateur
+    """
+    state = py_secrets.token_urlsafe(16)
+    github_auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={OAUTH_CLIENT_ID}"
+        f"&redirect_uri={OAUTH_REDIRECT_URI}"
+        f"&state={state}"
+    )
+    return RedirectResponse(github_auth_url)
+
+
+@app.get("/auth/callback")
+async def auth_callback(code: str = None, state: str = None):
+    """
+    Recoit le retour de GitHub apres connexion
+    Echange le code temporaire contre un token d'acces
+    """
+    if not code:
+        return {"error": "Code manquant"}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": OAUTH_CLIENT_ID,
+                "client_secret": OAUTH_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": OAUTH_REDIRECT_URI,
+            },
+        )
+        data = response.json()
+        access_token = data.get("access_token")
+
+        if not access_token:
+            return {"error": "Impossible d'obtenir le token", "details": data}
+
+        user_session["access_token"] = access_token
+
+    return RedirectResponse("/repos")
+
+
+@app.get("/repos", response_class=HTMLResponse)
+async def list_repos():
+    """
+    Liste tous les repos de l'utilisateur connecte via GitHub OAuth
+    Indique lesquels ont deja l'agent installe
+    """
+    if not user_session.get("access_token"):
+        return RedirectResponse("/auth/login")
+
+    from app.dashboard import render_page_shell
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://api.github.com/user/repos",
+            headers={
+                "Authorization": f"Bearer {user_session['access_token']}",
+                "Accept": "application/vnd.github+json",
+            },
+            params={"per_page": 100},
+        )
+        repos = response.json()
+
+    installed_repos = set()
+    try:
+        installed_client = get_github_client(int(os.getenv("GITHUB_INSTALLATION_ID")))
+        for repo in installed_client.get_installation(int(os.getenv("GITHUB_INSTALLATION_ID"))).get_repos():
+            installed_repos.add(repo.full_name)
+    except Exception:
+        pass
+
+    rows = ""
+    for repo in repos:
+        full_name = repo.get("full_name", "")
+        is_installed = full_name in installed_repos
+        badge = '<span class="badge clean">✅ Installé</span>' if is_installed else '<span class="badge medium">⚪ Non installé</span>'
+        install_link = f'<a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="view-btn">Installer</a>' if not is_installed else ""
+        rows += f"""
+        <tr>
+          <td>{full_name}</td>
+          <td>{badge}</td>
+          <td>{install_link}</td>
+        </tr>"""
+
+    body = f"""
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Vos Repositories GitHub</h1></div>
+    </div>
+  </div>
+  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
+  <div class="panel" style="margin-top:16px;">
+    <table class="pr-table">
+      <tr><th>Repository</th><th>Statut</th><th></th></tr>
+      {rows}
+    </table>
+  </div>
+"""
+    return render_page_shell("Vos Repositories", body)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None):

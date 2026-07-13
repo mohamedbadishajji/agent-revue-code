@@ -763,6 +763,9 @@ def generate_dashboard_html(
       <div class="repo-select">
         <select id="repoSelect">{options}</select>
       </div>
+      <a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="theme-toggle" style="text-decoration:none;">
+        <span>+ Ajouter un repository</span>
+      </a>
       <div class="status-pill">
         <span class="pulse-dot"></span>
         LIVE
