@@ -235,15 +235,31 @@ async def list_repos(session_id: str = Cookie(None)):
     from app.dashboard import render_page_shell
 
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            "https://api.github.com/user/repos",
+        # Endpoint specifique GitHub App : lister les installations de l'utilisateur
+        install_resp = await client.get(
+            "https://api.github.com/user/installations",
             headers={
                 "Authorization": f"Bearer {access_token}",
                 "Accept": "application/vnd.github+json",
             },
-            params={"per_page": 100},
         )
-        repos = response.json()
+        installations_data = install_resp.json()
+        print(f"DEBUG INSTALLATIONS: {installations_data}")
+
+        repos = []
+        for installation in installations_data.get("installations", []):
+            inst_id = installation["id"]
+            repos_resp = await client.get(
+                f"https://api.github.com/user/installations/{inst_id}/repositories",
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+            repos_data = repos_resp.json()
+            repos.extend(repos_data.get("repositories", []))
+
+        print(f"DEBUG: Nombre de repos via installations: {len(repos)}")
         print(f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}")
         print(f"DEBUG: Contenu brut: {repos}")
 
