@@ -172,6 +172,7 @@ async def auth_login(response: Response):
         f"?client_id={OAUTH_CLIENT_ID}"
         f"&redirect_uri={OAUTH_REDIRECT_URI}"
         f"&state={session_id}"
+        f"&scope=repo"
     )
 
     redirect = RedirectResponse(github_auth_url)

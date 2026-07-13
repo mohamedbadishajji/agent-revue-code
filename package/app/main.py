@@ -242,6 +242,8 @@ async def list_repos(session_id: str = Cookie(None)):
             params={"per_page": 100},
         )
         repos = response.json()
+        print(f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}")
+        print(f"DEBUG: Contenu brut: {repos}")
 
     installed_repos = set()
     try:
