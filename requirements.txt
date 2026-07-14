@@ -11,5 +11,6 @@ httpx
 sqlalchemy
 pyodbc
 passlib
-bcrypt
+bcrypt==4.0.1
 python-jose
+python-multipart

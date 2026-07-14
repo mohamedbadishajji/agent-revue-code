@@ -17,16 +17,16 @@ TOKEN_EXPIRE_HOURS = 24
 def hash_password(password: str) -> str:
     """
     Transforme un mot de passe en clair en hash securise
-    Le mot de passe original n'est JAMAIS stocke
+    Tronque a 72 caracteres (limite technique de bcrypt)
     """
-    return pwd_context.hash(password)
+    return pwd_context.hash(password[:72])
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     Verifie qu'un mot de passe correspond au hash stocke
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    return pwd_context.verify(plain_password[:72], hashed_password)
 
 
 def create_access_token(user_id: int, email: str) -> str:

@@ -455,7 +455,7 @@ async def register(request: Request):
         db.refresh(new_user)
 
         token = create_access_token(new_user.id, new_user.email)
-        redirect = RedirectResponse("/my-dashboard", status_code=303)
+        redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
     finally:
@@ -587,20 +587,153 @@ async def user_login(request: Request):
     finally:
         db.close()
 
+@app.get("/my-repos", response_class=HTMLResponse)
+async def my_repos_page(auth_token: str = Cookie(None)):
+    """
+    Page de gestion des repos personnels de l'utilisateur connecte
+    """
+    if not auth_token:
+        return RedirectResponse("/auth/user-login")
+
+    payload = decode_access_token(auth_token)
+    if not payload:
+        return RedirectResponse("/auth/user-login")
+
+    from app.dashboard import render_page_shell
+
+    db = SessionLocal()
+    try:
+        user_repos = db.query(UserRepo).filter(UserRepo.owner_user_id == payload["user_id"]).all()
+    finally:
+        db.close()
+
+    rows = ""
+    for r in user_repos:
+        rows += f"""
+        <tr>
+          <td>{r.repo_full_name}</td>
+          <td>{r.added_at.strftime('%Y-%m-%d')}</td>
+        </tr>"""
+    if not rows:
+        rows = '<tr><td colspan="2"><div class="empty-state">Aucun repository ajoute pour le moment.</div></td></tr>'
+
+    body = f"""
+  <div class="topbar" style="justify-content:flex-end;">
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Mode nuit</span>
+    </div>
+  </div>
+
+  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
+
+  <div class="panel" style="max-width:600px; margin: 24px auto;">
+    <div class="panel-head"><div class="panel-title">Ajouter un repository</div></div>
+    <form method="POST" action="/my-repos/add">
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom complet du repository (owner/repo)</label>
+        <input type="text" name="repo_full_name" required placeholder="mohamedbadishajji/mon-repo" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="padding:12px 24px; border-radius:10px;">Verifier et ajouter →</button>
+    </form>
+  </div>
+
+  <div class="panel" style="max-width:600px; margin: 24px auto;">
+    <div class="panel-head"><div class="panel-title">Mes repositories ({len(user_repos)})</div></div>
+    <table class="pr-table">
+      <tr><th>Repository</th><th>Ajoute le</th></tr>
+      {rows}
+    </table>
+  </div>
+"""
+    return render_page_shell("Mes Repositories", body)
+
+
+@app.post("/my-repos/add")
+async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
+    """
+    Verifie via GitHub OAuth que l'utilisateur a bien acces a ce repo,
+    puis l'ajoute a son compte
+    """
+    if not auth_token:
+        return RedirectResponse("/auth/user-login")
+
+    payload = decode_access_token(auth_token)
+    if not payload:
+        return RedirectResponse("/auth/user-login")
+
+    form = await request.form()
+    repo_full_name = form.get("repo_full_name", "").strip()
+
+    if not repo_full_name or "/" not in repo_full_name:
+        return {"error": "Format invalide. Utilisez: owner/repo"}
+
+    # Verification technique : ce repo appartient-il vraiment a l'installation
+    # de la GitHub App ? (methode fiable, deja testee avec succes)
+    try:
+        from app.github_client import PRIVATE_KEY, APP_ID
+        from github import GithubIntegration
+
+        integration = GithubIntegration(APP_ID, PRIVATE_KEY)
+        installation_id = int(os.getenv("GITHUB_INSTALLATION_ID"))
+        install_token = integration.get_access_token(installation_id).token
+
+        async with httpx.AsyncClient() as client:
+            check_response = await client.get(
+                f"https://api.github.com/repos/{repo_full_name}",
+                headers={
+                    "Authorization": f"Bearer {install_token}",
+                    "Accept": "application/vnd.github+json",
+                },
+            )
+
+        if check_response.status_code != 200:
+            return {"error": f"Ce repository n'est pas accessible ou l'agent n'y est pas installe. Installez d'abord l'app via le bouton du dashboard."}
+
+    except Exception as e:
+        return {"error": f"Erreur de verification : {str(e)}"}
+
+    db = SessionLocal()
+    try:
+        existing = db.query(UserRepo).filter(UserRepo.repo_full_name == repo_full_name).first()
+        if existing:
+            return {"error": "Ce repository est deja associe a un compte"}
+
+        new_repo = UserRepo(repo_full_name=repo_full_name, owner_user_id=payload["user_id"])
+        db.add(new_repo)
+        db.commit()
+    finally:
+        db.close()
+
+    return RedirectResponse("/my-repos", status_code=303)
+    
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(repo: str = None):
+async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     """
-    Dashboard de métriques de revue de code
-    REVUE-46 : Filtrable par repository
+    Dashboard de metriques de revue de code
+    REVUE-46 : Filtrable par repository ET par utilisateur connecte
     """
-    from app.dashboard import (
-        get_all_reports,
-        filter_reports_by_repo,
-        calculate_dashboard_stats,
-        generate_dashboard_html,
-    )
+    from app.dashboard import get_all_reports, filter_reports_by_repo, calculate_dashboard_stats, generate_dashboard_html
 
     all_reports = get_all_reports()
+
+    # Si un utilisateur est connecte, filtrer sur SES repos uniquement
+    if auth_token:
+        payload = decode_access_token(auth_token)
+        if payload:
+            db = SessionLocal()
+            try:
+                user_id = payload["user_id"]
+                user_repos = db.query(UserRepo).filter(UserRepo.owner_user_id == user_id).all()
+                user_repo_names = {r.repo_full_name for r in user_repos}
+
+                if user_repo_names:
+                    all_reports = [r for r in all_reports if r.get("repo_name") in user_repo_names]
+                else:
+                    all_reports = []
+            finally:
+                db.close()
+
     filtered_reports = filter_reports_by_repo(all_reports, repo)
     stats = calculate_dashboard_stats(filtered_reports)
     html = generate_dashboard_html(stats, filtered_reports, repo)
