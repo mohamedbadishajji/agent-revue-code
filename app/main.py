@@ -6,6 +6,9 @@ import os
 from fastapi.responses import HTMLResponse, RedirectResponse
 import httpx
 import secrets as py_secrets
+from sqlalchemy.orm import Session
+from app.database import get_db, User, UserRepo, SessionLocal
+from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token
 
 load_dotenv()
 
@@ -328,6 +331,261 @@ async def list_repos(session_id: str = Cookie(None)):
 """
     return render_page_shell("Vos Repositories", body)
 
+@app.get("/auth/register", response_class=HTMLResponse)
+async def register_page():
+    """
+    Affiche le formulaire d'inscription
+    """
+    extra_head = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  .auth-page * { font-family: 'Inter', sans-serif !important; }
+  .auth-page .auth-title {
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 32px;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 6px;
+    background: linear-gradient(120deg, var(--text) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .auth-page .auth-subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+  .auth-page .auth-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .auth-page .auth-brand .brand-mark {
+    width: 40px; height: 40px; font-size: 17px;
+  }
+  .auth-page .auth-brand span {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .auth-page input {
+    font-family: 'Inter', sans-serif !important;
+    transition: border-color 0.2s ease;
+  }
+  .auth-page input:focus {
+    outline: none;
+    border-color: var(--accent) !important;
+  }
+  .auth-page .view-btn {
+    background: var(--accent);
+    color: #06090c;
+    font-weight: 700;
+    border: none;
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .auth-page .view-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(var(--accent-rgb), 0.35);
+  }
+</style>
+"""
+
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="topbar" style="justify-content:flex-end;">
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Mode nuit</span>
+    </div>
+  </div>
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-brand">
+      <div class="brand-mark">AI</div>
+      <span>Agent Revue de Code</span>
+    </div>
+    <div class="auth-title">Créer un compte</div>
+    <form method="POST" action="/auth/register">
+      <div style="margin-bottom:18px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
+        <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Mot de passe</label>
+        <input type="password" name="password" required placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">S'inscrire →</button>
+    </form>
+    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+      Déjà un compte ? <a href="/auth/user-login" style="font-weight:600;">Se connecter</a>
+    </p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Inscription", body, extra_head)
+
+@app.post("/auth/register")
+async def register(request: Request):
+    """
+    Cree un nouveau compte utilisateur
+    """
+    form = await request.form()
+    email = form.get("email")
+    password = form.get("password")
+
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            return {"error": "Cet email est deja utilise"}
+
+        new_user = User(email=email, password_hash=hash_password(password))
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+
+        token = create_access_token(new_user.id, new_user.email)
+        redirect = RedirectResponse("/my-dashboard", status_code=303)
+        redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
+        return redirect
+    finally:
+        db.close()
+
+
+@app.get("/auth/user-login", response_class=HTMLResponse)
+async def user_login_page():
+    """
+    Affiche le formulaire de connexion
+    """
+    extra_head = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  .auth-page * { font-family: 'Inter', sans-serif !important; }
+  .auth-page .auth-title {
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 32px;
+    font-weight: 800;
+    text-align: center;
+    margin-bottom: 6px;
+    background: linear-gradient(120deg, var(--text) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .auth-page .auth-subtitle {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 14px;
+    margin-bottom: 28px;
+  }
+  .auth-page .auth-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .auth-page .auth-brand .brand-mark {
+    width: 40px; height: 40px; font-size: 17px;
+  }
+  .auth-page .auth-brand span {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .auth-page input {
+    font-family: 'Inter', sans-serif !important;
+    transition: border-color 0.2s ease;
+  }
+  .auth-page input:focus {
+    outline: none;
+    border-color: var(--accent) !important;
+  }
+  .auth-page .view-btn {
+    background: var(--accent);
+    color: #06090c;
+    font-weight: 700;
+    border: none;
+    font-family: 'Poppins', sans-serif !important;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .auth-page .view-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(var(--accent-rgb), 0.35);
+  }
+</style>
+"""
+
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="topbar" style="justify-content:flex-end;">
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Mode nuit</span>
+    </div>
+  </div>
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-brand">
+      <div class="brand-mark">AI</div>
+      <span>Agent Revue de Code</span>
+    </div>
+    <div class="auth-title">Bon retour</div>
+    <form method="POST" action="/auth/user-login">
+      <div style="margin-bottom:18px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
+        <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Mot de passe</label>
+        <input type="password" name="password" required placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Se connecter →</button>
+    </form>
+    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+      Pas de compte ? <a href="/auth/register" style="font-weight:600;">S'inscrire</a>
+    </p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Connexion", body, extra_head)
+
+@app.post("/auth/user-login")
+async def user_login(request: Request):
+    """
+    Verifie les identifiants et connecte l'utilisateur
+    """
+    form = await request.form()
+    email = form.get("email")
+    password = form.get("password")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not verify_password(password, user.password_hash):
+            return {"error": "Email ou mot de passe incorrect"}
+
+        token = create_access_token(user.id, user.email)
+        redirect = RedirectResponse("/my-dashboard", status_code=303)
+        redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
+        return redirect
+    finally:
+        db.close()
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None):

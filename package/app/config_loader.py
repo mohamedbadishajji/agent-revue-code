@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
     "ignored_paths": [],
     "max_file_size_kb": 1000,
     "custom_instructions": "",
-    "languages_enabled": []
+    "languages_enabled": [],
 }
 
 

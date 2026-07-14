@@ -159,6 +159,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     return {"message": "Événement ignoré"}
 
+
 @app.get("/auth/login")
 async def auth_login(response: Response):
     """
@@ -181,7 +182,9 @@ async def auth_login(response: Response):
 
 
 @app.get("/auth/callback")
-async def auth_callback(code: str = None, state: str = None, session_id: str = Cookie(None)):
+async def auth_callback(
+    code: str = None, state: str = None, session_id: str = Cookie(None)
+):
     """
     Recoit le retour de GitHub apres connexion
     Echange le code temporaire contre un token d'acces
@@ -208,7 +211,6 @@ async def auth_callback(code: str = None, state: str = None, session_id: str = C
         )
         data = response.json()
         access_token = data.get("access_token")
-        print(f"DEBUG TOKEN RESPONSE: {data}")
 
         if not access_token:
             return {"error": "Impossible d'obtenir le token", "details": data}
@@ -216,7 +218,9 @@ async def auth_callback(code: str = None, state: str = None, session_id: str = C
         user_sessions[effective_session_id] = {"access_token": access_token}
 
     redirect = RedirectResponse("/repos")
-    redirect.set_cookie(key="session_id", value=effective_session_id, httponly=True, max_age=3600)
+    redirect.set_cookie(
+        key="session_id", value=effective_session_id, httponly=True, max_age=3600
+    )
     return redirect
 
 
@@ -244,7 +248,6 @@ async def list_repos(session_id: str = Cookie(None)):
             },
         )
         installations_data = install_resp.json()
-        print(f"DEBUG INSTALLATIONS: {installations_data}")
 
         repos = []
         for installation in installations_data.get("installations", []):
@@ -259,8 +262,9 @@ async def list_repos(session_id: str = Cookie(None)):
             repos_data = repos_resp.json()
             repos.extend(repos_data.get("repositories", []))
 
-        print(f"DEBUG: Nombre de repos via installations: {len(repos)}")
-        print(f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}")
+        print(
+            f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}"
+        )
         print(f"DEBUG: Contenu brut: {repos}")
 
     installed_repos = set()
@@ -290,8 +294,16 @@ async def list_repos(session_id: str = Cookie(None)):
     for repo in repos:
         full_name = repo.get("full_name", "")
         is_installed = full_name in installed_repos
-        badge = '<span class="badge clean">✅ Installé</span>' if is_installed else '<span class="badge medium">⚪ Non installé</span>'
-        install_link = f'<a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="view-btn">Installer</a>' if not is_installed else ""
+        badge = (
+            '<span class="badge clean">✅ Installé</span>'
+            if is_installed
+            else '<span class="badge medium">⚪ Non installé</span>'
+        )
+        install_link = (
+            '<a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="view-btn">Installer</a>'
+            if not is_installed
+            else ""
+        )
         rows += f"""
         <tr>
           <td>{full_name}</td>
@@ -315,6 +327,7 @@ async def list_repos(session_id: str = Cookie(None)):
   </div>
 """
     return render_page_shell("Vos Repositories", body)
+
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None):

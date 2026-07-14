@@ -8,3 +8,8 @@ pyyaml
 boto3
 azure-storage-blob
 httpx
+sqlalchemy
+pyodbc
+passlib
+bcrypt
+python-jose
