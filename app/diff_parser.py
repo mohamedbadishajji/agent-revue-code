@@ -57,7 +57,7 @@ def get_language(file_path: str) -> str:
         ".lua": "lua",
         ".sql": "sql",
         ".vue": "javascript",
-        ".mjs": "javascript"
+        ".mjs": "javascript",
     }
     if ext in languages:
         return languages[ext]
