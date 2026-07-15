@@ -29,15 +29,15 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password[:72], hashed_password)
 
 
-def create_access_token(user_id: int, email: str) -> str:
+def create_access_token(user_id: int, email: str, username: str = None) -> str:
     """
     Cree un token de session (JWT) pour un utilisateur connecte
-    Ce token sera stocke dans un cookie et verifie a chaque requete
     """
     expire = datetime.utcnow() + timedelta(hours=TOKEN_EXPIRE_HOURS)
     payload = {
         "user_id": user_id,
         "email": email,
+        "username": username,
         "exp": expire
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)

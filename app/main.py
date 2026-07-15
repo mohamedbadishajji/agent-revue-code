@@ -417,6 +417,10 @@ async def register_page():
     <div class="auth-title">Créer un compte</div>
     <form method="POST" action="/auth/register">
       <div style="margin-bottom:18px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur</label>
+        <input type="text" name="username" required placeholder="Mohamed Badis" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:18px;">
         <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
         <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
       </div>
@@ -440,6 +444,7 @@ async def register(request: Request):
     Cree un nouveau compte utilisateur
     """
     form = await request.form()
+    username = form.get("username")
     email = form.get("email")
     password = form.get("password")
 
@@ -449,12 +454,12 @@ async def register(request: Request):
         if existing:
             return {"error": "Cet email est deja utilise"}
 
-        new_user = User(email=email, password_hash=hash_password(password))
+        new_user = User(email=email, username=username, password_hash=hash_password(password))
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        token = create_access_token(new_user.id, new_user.email)
+        token = create_access_token(new_user.id, new_user.email, new_user.username)
         redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
@@ -580,8 +585,8 @@ async def user_login(request: Request):
         if not user or not verify_password(password, user.password_hash):
             return {"error": "Email ou mot de passe incorrect"}
 
-        token = create_access_token(user.id, user.email)
-        redirect = RedirectResponse("/my-dashboard", status_code=303)
+        token = create_access_token(user.id, user.email, user.username)
+        redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
     finally:
@@ -706,7 +711,16 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
         db.close()
 
     return RedirectResponse("/my-repos", status_code=303)
-    
+
+@app.get("/auth/logout")
+async def logout():
+    """
+    Deconnecte l'utilisateur et le redirige vers la page de connexion
+    """
+    redirect = RedirectResponse("/auth/user-login", status_code=302)
+    redirect.delete_cookie(key="auth_token", path="/")
+    return redirect
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     """
@@ -734,10 +748,32 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
             finally:
                 db.close()
 
+    fcurrent_user_email = None
+    if auth_token:
+        payload = decode_access_token(auth_token)
+        if payload:
+            current_user_email = payload.get("username") or payload.get("email")
+            db = SessionLocal()
+            try:
+                user_id = payload["user_id"]
+                user_repos = db.query(UserRepo).filter(UserRepo.owner_user_id == user_id).all()
+                user_repo_names = {r.repo_full_name for r in user_repos}
+
+                if user_repo_names:
+                    all_reports = [r for r in all_reports if r.get("repo_name") in user_repo_names]
+                else:
+                    all_reports = []
+            finally:
+                db.close()
+
     filtered_reports = filter_reports_by_repo(all_reports, repo)
     stats = calculate_dashboard_stats(filtered_reports)
-    html = generate_dashboard_html(stats, filtered_reports, repo)
-    return html
+    html = generate_dashboard_html(stats, filtered_reports, repo, current_user_email)
+    from fastapi.responses import HTMLResponse as HTMLResp
+    response = HTMLResp(content=html)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.get("/dashboard/pr/{pr_number}", response_class=HTMLResponse)
