@@ -8,7 +8,7 @@ import httpx
 import secrets as py_secrets
 from sqlalchemy.orm import Session
 from app.database import get_db, User, UserRepo, SessionLocal
-from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token
+from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email
 
 load_dotenv()
 
@@ -562,7 +562,10 @@ async def user_login_page():
       </div>
       <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Se connecter →</button>
     </form>
-    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+    <p style="margin-top:12px; text-align:center; font-size:13px;">
+      <a href="/auth/forgot-password" style="color:var(--text-dim);">Mot de passe oublié ?</a>
+    </p>
+    <p style="margin-top:12px; text-align:center; font-size:13.5px; color:var(--text-dim);">
       Pas de compte ? <a href="/auth/register" style="font-weight:600;">S'inscrire</a>
     </p>
   </div>
@@ -720,6 +723,137 @@ async def logout():
     redirect = RedirectResponse("/auth/user-login", status_code=302)
     redirect.delete_cookie(key="auth_token", path="/")
     return redirect
+
+@app.get("/auth/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page():
+    """
+    Affiche le formulaire de demande de reinitialisation
+    """
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="topbar" style="justify-content:flex-end;">
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Mode nuit</span>
+    </div>
+  </div>
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-brand">
+      <div class="brand-mark">AI</div>
+      <span>Agent Revue de Code</span>
+    </div>
+    <div class="auth-title">Mot de passe oublie</div>
+    <div class="auth-subtitle">Recevez un lien de reinitialisation par email</div>
+    <form method="POST" action="/auth/forgot-password">
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
+        <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Envoyer le lien →</button>
+    </form>
+    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+      <a href="/auth/user-login" style="font-weight:600;">← Retour a la connexion</a>
+    </p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Mot de passe oublie", body)
+
+
+@app.post("/auth/forgot-password", response_class=HTMLResponse)
+async def forgot_password(request: Request):
+    """
+    Genere un token et envoie l'email de reinitialisation
+    """
+    form = await request.form()
+    email = form.get("email")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            token = generate_reset_token(user.id)
+            reset_link = f"https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/reset-password?token={token}"
+            send_reset_email(user.email, reset_link)
+    finally:
+        db.close()
+
+    from app.dashboard import render_page_shell
+    body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title">Email envoye ✅</div>
+    <p style="color:var(--text-dim);">Si un compte existe avec cet email, un lien de reinitialisation vient de vous etre envoye.</p>
+    <p style="margin-top:20px;"><a href="/auth/user-login" style="font-weight:600;">← Retour a la connexion</a></p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Email envoye", body)
+
+
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+async def reset_password_page(token: str = None):
+    """
+    Affiche le formulaire de nouveau mot de passe
+    """
+    from app.dashboard import render_page_shell
+
+    if not token or not verify_reset_token(token):
+        body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title">Lien invalide</div>
+    <p style="color:var(--text-dim);">Ce lien de reinitialisation est invalide ou a expire.</p>
+    <p style="margin-top:20px;"><a href="/auth/forgot-password" style="font-weight:600;">Demander un nouveau lien</a></p>
+  </div>
+  </div>
+"""
+        return render_page_shell("Lien invalide", body)
+
+    body = f"""
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-title">Nouveau mot de passe</div>
+    <div class="auth-subtitle">Choisissez un nouveau mot de passe</div>
+    <form method="POST" action="/auth/reset-password">
+      <input type="hidden" name="token" value="{token}">
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nouveau mot de passe</label>
+        <input type="password" name="password" required placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Reinitialiser →</button>
+    </form>
+  </div>
+  </div>
+"""
+    return render_page_shell("Nouveau mot de passe", body)
+
+
+@app.post("/auth/reset-password")
+async def reset_password(request: Request):
+    """
+    Verifie le token et met a jour le mot de passe
+    """
+    form = await request.form()
+    token = form.get("token")
+    password = form.get("password")
+
+    user_id = verify_reset_token(token)
+    if not user_id:
+        return {"error": "Token invalide ou expire"}
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        user.password_hash = hash_password(password)
+        db.commit()
+    finally:
+        db.close()
+
+    consume_reset_token(token)
+    return RedirectResponse("/auth/user-login", status_code=303)
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
