@@ -163,174 +163,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     return {"message": "Événement ignoré"}
 
 
-@app.get("/auth/login")
-async def auth_login(response: Response):
-    """
-    Redirige vers GitHub pour connexion OAuth
-    Cree un cookie de session unique pour cet utilisateur
-    """
-    session_id = py_secrets.token_urlsafe(32)
-
-    github_auth_url = (
-        f"https://github.com/login/oauth/authorize"
-        f"?client_id={OAUTH_CLIENT_ID}"
-        f"&redirect_uri={OAUTH_REDIRECT_URI}"
-        f"&state={session_id}"
-        f"&scope=repo"
-    )
-
-    redirect = RedirectResponse(github_auth_url)
-    redirect.set_cookie(key="session_id", value=session_id, httponly=True, max_age=3600)
-    return redirect
-
-
-@app.get("/auth/callback")
-async def auth_callback(
-    code: str = None, state: str = None, session_id: str = Cookie(None)
-):
-    """
-    Recoit le retour de GitHub apres connexion
-    Echange le code temporaire contre un token d'acces
-    Stocke le token dans LA session precise de cet utilisateur
-    """
-    if not code:
-        return {"error": "Code manquant"}
-
-    # Utilise le state (envoye a GitHub) ou le cookie comme identifiant de session
-    effective_session_id = state or session_id
-    if not effective_session_id:
-        return {"error": "Session invalide"}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://github.com/login/oauth/access_token",
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": OAUTH_CLIENT_ID,
-                "client_secret": OAUTH_CLIENT_SECRET,
-                "code": code,
-                "redirect_uri": OAUTH_REDIRECT_URI,
-            },
-        )
-        data = response.json()
-        access_token = data.get("access_token")
-
-        if not access_token:
-            return {"error": "Impossible d'obtenir le token", "details": data}
-
-        user_sessions[effective_session_id] = {"access_token": access_token}
-
-    redirect = RedirectResponse("/repos")
-    redirect.set_cookie(
-        key="session_id", value=effective_session_id, httponly=True, max_age=3600
-    )
-    return redirect
-
-
-@app.get("/repos", response_class=HTMLResponse)
-async def list_repos(session_id: str = Cookie(None)):
-    """
-    Liste tous les repos de l'utilisateur connecte via GitHub OAuth
-    Indique lesquels ont deja l'agent installe
-    Utilise LA session precise de cet utilisateur (cookie)
-    """
-    if not session_id or session_id not in user_sessions:
-        return RedirectResponse("/auth/login")
-
-    access_token = user_sessions[session_id]["access_token"]
-
-    from app.dashboard import render_page_shell
-
-    async with httpx.AsyncClient() as client:
-        # Endpoint specifique GitHub App : lister les installations de l'utilisateur
-        install_resp = await client.get(
-            "https://api.github.com/user/installations",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        installations_data = install_resp.json()
-
-        repos = []
-        for installation in installations_data.get("installations", []):
-            inst_id = installation["id"]
-            repos_resp = await client.get(
-                f"https://api.github.com/user/installations/{inst_id}/repositories",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                },
-            )
-            repos_data = repos_resp.json()
-            repos.extend(repos_data.get("repositories", []))
-
-        print(
-            f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}"
-        )
-        print(f"DEBUG: Contenu brut: {repos}")
-
-    installed_repos = set()
-    try:
-        from app.github_client import PRIVATE_KEY, APP_ID
-        from github import GithubIntegration
-
-        integration = GithubIntegration(APP_ID, PRIVATE_KEY)
-        installation_id = int(os.getenv("GITHUB_INSTALLATION_ID"))
-        install_token = integration.get_access_token(installation_id).token
-
-        async with httpx.AsyncClient() as install_client:
-            install_response = await install_client.get(
-                "https://api.github.com/installation/repositories",
-                headers={
-                    "Authorization": f"Bearer {install_token}",
-                    "Accept": "application/vnd.github+json",
-                },
-            )
-            install_data = install_response.json()
-            for repo in install_data.get("repositories", []):
-                installed_repos.add(repo["full_name"])
-    except Exception as e:
-        print(f"Erreur recuperation repos installes : {str(e)}")
-
-    rows = ""
-    for repo in repos:
-        full_name = repo.get("full_name", "")
-        is_installed = full_name in installed_repos
-        badge = (
-            '<span class="badge clean">✅ Installé</span>'
-            if is_installed
-            else '<span class="badge medium">⚪ Non installé</span>'
-        )
-        install_link = (
-            '<a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="view-btn">Installer</a>'
-            if not is_installed
-            else ""
-        )
-        rows += f"""
-        <tr>
-          <td>{full_name}</td>
-          <td>{badge}</td>
-          <td>{install_link}</td>
-        </tr>"""
-
-    body = f"""
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">AI</div>
-      <div class="brand-text"><h1>Vos Repositories GitHub</h1></div>
-    </div>
-  </div>
-  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
-  <div class="panel" style="margin-top:16px;">
-    <table class="pr-table">
-      <tr><th>Repository</th><th>Statut</th><th></th></tr>
-      {rows}
-    </table>
-  </div>
-"""
-    return render_page_shell("Vos Repositories", body)
-
 def render_error_page(message: str, back_link: str = "/auth/user-login") -> HTMLResponse:
     """
     Genere une page d'erreur HTML propre au lieu d'un JSON brut
@@ -881,25 +713,9 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     from app.dashboard import get_all_reports, filter_reports_by_repo, calculate_dashboard_stats, generate_dashboard_html
 
     all_reports = get_all_reports()
+    current_user_email = None
 
     # Si un utilisateur est connecte, filtrer sur SES repos uniquement
-    if auth_token:
-        payload = decode_access_token(auth_token)
-        if payload:
-            db = SessionLocal()
-            try:
-                user_id = payload["user_id"]
-                user_repos = db.query(UserRepo).filter(UserRepo.owner_user_id == user_id).all()
-                user_repo_names = {r.repo_full_name for r in user_repos}
-
-                if user_repo_names:
-                    all_reports = [r for r in all_reports if r.get("repo_name") in user_repo_names]
-                else:
-                    all_reports = []
-            finally:
-                db.close()
-
-    fcurrent_user_email = None
     if auth_token:
         payload = decode_access_token(auth_token)
         if payload:
@@ -920,12 +736,11 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     filtered_reports = filter_reports_by_repo(all_reports, repo)
     stats = calculate_dashboard_stats(filtered_reports)
     html = generate_dashboard_html(stats, filtered_reports, repo, current_user_email)
-    from fastapi.responses import HTMLResponse as HTMLResp
-    response = HTMLResp(content=html)
+
+    response = HTMLResponse(content=html)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     return response
-
 
 @app.get("/dashboard/pr/{pr_number}", response_class=HTMLResponse)
 async def dashboard_pr_detail(pr_number: int, repo: str = None):
