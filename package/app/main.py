@@ -8,7 +8,7 @@ import httpx
 import secrets as py_secrets
 from sqlalchemy.orm import Session
 from app.database import get_db, User, UserRepo, SessionLocal
-from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token
+from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email
 
 load_dotenv()
 
@@ -163,173 +163,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     return {"message": "Événement ignoré"}
 
 
-@app.get("/auth/login")
-async def auth_login(response: Response):
+def render_error_page(message: str, back_link: str = "/auth/user-login") -> HTMLResponse:
     """
-    Redirige vers GitHub pour connexion OAuth
-    Cree un cookie de session unique pour cet utilisateur
+    Genere une page d'erreur HTML propre au lieu d'un JSON brut
     """
-    session_id = py_secrets.token_urlsafe(32)
-
-    github_auth_url = (
-        f"https://github.com/login/oauth/authorize"
-        f"?client_id={OAUTH_CLIENT_ID}"
-        f"&redirect_uri={OAUTH_REDIRECT_URI}"
-        f"&state={session_id}"
-        f"&scope=repo"
-    )
-
-    redirect = RedirectResponse(github_auth_url)
-    redirect.set_cookie(key="session_id", value=session_id, httponly=True, max_age=3600)
-    return redirect
-
-
-@app.get("/auth/callback")
-async def auth_callback(
-    code: str = None, state: str = None, session_id: str = Cookie(None)
-):
-    """
-    Recoit le retour de GitHub apres connexion
-    Echange le code temporaire contre un token d'acces
-    Stocke le token dans LA session precise de cet utilisateur
-    """
-    if not code:
-        return {"error": "Code manquant"}
-
-    # Utilise le state (envoye a GitHub) ou le cookie comme identifiant de session
-    effective_session_id = state or session_id
-    if not effective_session_id:
-        return {"error": "Session invalide"}
-
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://github.com/login/oauth/access_token",
-            headers={"Accept": "application/json"},
-            data={
-                "client_id": OAUTH_CLIENT_ID,
-                "client_secret": OAUTH_CLIENT_SECRET,
-                "code": code,
-                "redirect_uri": OAUTH_REDIRECT_URI,
-            },
-        )
-        data = response.json()
-        access_token = data.get("access_token")
-
-        if not access_token:
-            return {"error": "Impossible d'obtenir le token", "details": data}
-
-        user_sessions[effective_session_id] = {"access_token": access_token}
-
-    redirect = RedirectResponse("/repos")
-    redirect.set_cookie(
-        key="session_id", value=effective_session_id, httponly=True, max_age=3600
-    )
-    return redirect
-
-
-@app.get("/repos", response_class=HTMLResponse)
-async def list_repos(session_id: str = Cookie(None)):
-    """
-    Liste tous les repos de l'utilisateur connecte via GitHub OAuth
-    Indique lesquels ont deja l'agent installe
-    Utilise LA session precise de cet utilisateur (cookie)
-    """
-    if not session_id or session_id not in user_sessions:
-        return RedirectResponse("/auth/login")
-
-    access_token = user_sessions[session_id]["access_token"]
-
     from app.dashboard import render_page_shell
 
-    async with httpx.AsyncClient() as client:
-        # Endpoint specifique GitHub App : lister les installations de l'utilisateur
-        install_resp = await client.get(
-            "https://api.github.com/user/installations",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/vnd.github+json",
-            },
-        )
-        installations_data = install_resp.json()
-
-        repos = []
-        for installation in installations_data.get("installations", []):
-            inst_id = installation["id"]
-            repos_resp = await client.get(
-                f"https://api.github.com/user/installations/{inst_id}/repositories",
-                headers={
-                    "Authorization": f"Bearer {access_token}",
-                    "Accept": "application/vnd.github+json",
-                },
-            )
-            repos_data = repos_resp.json()
-            repos.extend(repos_data.get("repositories", []))
-
-        print(
-            f"DEBUG: Nombre de repos recus de l'API: {len(repos) if isinstance(repos, list) else 'ERREUR - pas une liste'}"
-        )
-        print(f"DEBUG: Contenu brut: {repos}")
-
-    installed_repos = set()
-    try:
-        from app.github_client import PRIVATE_KEY, APP_ID
-        from github import GithubIntegration
-
-        integration = GithubIntegration(APP_ID, PRIVATE_KEY)
-        installation_id = int(os.getenv("GITHUB_INSTALLATION_ID"))
-        install_token = integration.get_access_token(installation_id).token
-
-        async with httpx.AsyncClient() as install_client:
-            install_response = await install_client.get(
-                "https://api.github.com/installation/repositories",
-                headers={
-                    "Authorization": f"Bearer {install_token}",
-                    "Accept": "application/vnd.github+json",
-                },
-            )
-            install_data = install_response.json()
-            for repo in install_data.get("repositories", []):
-                installed_repos.add(repo["full_name"])
-    except Exception as e:
-        print(f"Erreur recuperation repos installes : {str(e)}")
-
-    rows = ""
-    for repo in repos:
-        full_name = repo.get("full_name", "")
-        is_installed = full_name in installed_repos
-        badge = (
-            '<span class="badge clean">✅ Installé</span>'
-            if is_installed
-            else '<span class="badge medium">⚪ Non installé</span>'
-        )
-        install_link = (
-            '<a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="view-btn">Installer</a>'
-            if not is_installed
-            else ""
-        )
-        rows += f"""
-        <tr>
-          <td>{full_name}</td>
-          <td>{badge}</td>
-          <td>{install_link}</td>
-        </tr>"""
-
     body = f"""
-  <div class="topbar">
-    <div class="brand">
-      <div class="brand-mark">AI</div>
-      <div class="brand-text"><h1>Vos Repositories GitHub</h1></div>
-    </div>
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title" style="color:var(--red);">⚠️ Erreur</div>
+    <p style="color:var(--text-dim);">{message}</p>
+    <p style="margin-top:20px;"><a href="{back_link}" style="font-weight:600;">← Retour</a></p>
   </div>
-  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
-  <div class="panel" style="margin-top:16px;">
-    <table class="pr-table">
-      <tr><th>Repository</th><th>Statut</th><th></th></tr>
-      {rows}
-    </table>
   </div>
 """
-    return render_page_shell("Vos Repositories", body)
+    return HTMLResponse(content=render_page_shell("Erreur", body))
 
 @app.get("/auth/register", response_class=HTMLResponse)
 async def register_page():
@@ -417,6 +266,10 @@ async def register_page():
     <div class="auth-title">Créer un compte</div>
     <form method="POST" action="/auth/register">
       <div style="margin-bottom:18px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur</label>
+        <input type="text" name="username" required placeholder="Mohamed Badis" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:18px;">
         <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
         <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
       </div>
@@ -440,6 +293,7 @@ async def register(request: Request):
     Cree un nouveau compte utilisateur
     """
     form = await request.form()
+    username = form.get("username")
     email = form.get("email")
     password = form.get("password")
 
@@ -447,14 +301,14 @@ async def register(request: Request):
     try:
         existing = db.query(User).filter(User.email == email).first()
         if existing:
-            return {"error": "Cet email est deja utilise"}
+            return render_error_page("Cet email est deja utilise", "/auth/register")
 
-        new_user = User(email=email, password_hash=hash_password(password))
+        new_user = User(email=email, username=username, password_hash=hash_password(password))
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        token = create_access_token(new_user.id, new_user.email)
+        token = create_access_token(new_user.id, new_user.email, new_user.username)
         redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
@@ -557,7 +411,10 @@ async def user_login_page():
       </div>
       <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Se connecter →</button>
     </form>
-    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+    <p style="margin-top:12px; text-align:center; font-size:13px;">
+      <a href="/auth/forgot-password" style="color:var(--text-dim);">Mot de passe oublié ?</a>
+    </p>
+    <p style="margin-top:12px; text-align:center; font-size:13.5px; color:var(--text-dim);">
       Pas de compte ? <a href="/auth/register" style="font-weight:600;">S'inscrire</a>
     </p>
   </div>
@@ -578,10 +435,10 @@ async def user_login(request: Request):
     try:
         user = db.query(User).filter(User.email == email).first()
         if not user or not verify_password(password, user.password_hash):
-            return {"error": "Email ou mot de passe incorrect"}
+            return render_error_page("Email ou mot de passe incorrect", "/auth/user-login")
 
-        token = create_access_token(user.id, user.email)
-        redirect = RedirectResponse("/my-dashboard", status_code=303)
+        token = create_access_token(user.id, user.email, user.username)
+        redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
     finally:
@@ -666,7 +523,7 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
     repo_full_name = form.get("repo_full_name", "").strip()
 
     if not repo_full_name or "/" not in repo_full_name:
-        return {"error": "Format invalide. Utilisez: owner/repo"}
+        return render_error_page("Format invalide. Utilisez: owner/repo", "/my-repos")
 
     # Verification technique : ce repo appartient-il vraiment a l'installation
     # de la GitHub App ? (methode fiable, deja testee avec succes)
@@ -688,16 +545,16 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
             )
 
         if check_response.status_code != 200:
-            return {"error": f"Ce repository n'est pas accessible ou l'agent n'y est pas installe. Installez d'abord l'app via le bouton du dashboard."}
+            return render_error_page("Ce repository n'est pas accessible ou l'agent n'y est pas installe. Installez d'abord l'app via le bouton du dashboard.", "/my-repos")
 
     except Exception as e:
-        return {"error": f"Erreur de verification : {str(e)}"}
+        return render_error_page(f"Erreur de verification : {str(e)}", "/my-repos")
 
     db = SessionLocal()
     try:
         existing = db.query(UserRepo).filter(UserRepo.repo_full_name == repo_full_name).first()
         if existing:
-            return {"error": "Ce repository est deja associe a un compte"}
+            return render_error_page("Ce repository est deja associe a un compte", "/my-repos")
 
         new_repo = UserRepo(repo_full_name=repo_full_name, owner_user_id=payload["user_id"])
         db.add(new_repo)
@@ -706,7 +563,147 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
         db.close()
 
     return RedirectResponse("/my-repos", status_code=303)
-    
+
+@app.get("/auth/logout")
+async def logout():
+    """
+    Deconnecte l'utilisateur et le redirige vers la page de connexion
+    """
+    redirect = RedirectResponse("/auth/user-login", status_code=302)
+    redirect.delete_cookie(key="auth_token", path="/")
+    return redirect
+
+@app.get("/auth/forgot-password", response_class=HTMLResponse)
+async def forgot_password_page():
+    """
+    Affiche le formulaire de demande de reinitialisation
+    """
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="topbar" style="justify-content:flex-end;">
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+      <span id="themeLabel">Mode nuit</span>
+    </div>
+  </div>
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-brand">
+      <div class="brand-mark">AI</div>
+      <span>Agent Revue de Code</span>
+    </div>
+    <div class="auth-title">Mot de passe oublie</div>
+    <div class="auth-subtitle">Recevez un lien de reinitialisation par email</div>
+    <form method="POST" action="/auth/forgot-password">
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
+        <input type="email" name="email" required placeholder="vous@smartovate.com" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Envoyer le lien →</button>
+    </form>
+    <p style="margin-top:20px; text-align:center; font-size:13.5px; color:var(--text-dim);">
+      <a href="/auth/user-login" style="font-weight:600;">← Retour a la connexion</a>
+    </p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Mot de passe oublie", body)
+
+
+@app.post("/auth/forgot-password", response_class=HTMLResponse)
+async def forgot_password(request: Request):
+    """
+    Genere un token et envoie l'email de reinitialisation
+    """
+    form = await request.form()
+    email = form.get("email")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            token = generate_reset_token(user.id)
+            reset_link = f"https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/reset-password?token={token}"
+            send_reset_email(user.email, reset_link)
+    finally:
+        db.close()
+
+    from app.dashboard import render_page_shell
+    body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title">Email envoye ✅</div>
+    <p style="color:var(--text-dim);">Si un compte existe avec cet email, un lien de reinitialisation vient de vous etre envoye.</p>
+    <p style="margin-top:20px;"><a href="/auth/user-login" style="font-weight:600;">← Retour a la connexion</a></p>
+  </div>
+  </div>
+"""
+    return render_page_shell("Email envoye", body)
+
+
+@app.get("/auth/reset-password", response_class=HTMLResponse)
+async def reset_password_page(token: str = None):
+    """
+    Affiche le formulaire de nouveau mot de passe
+    """
+    from app.dashboard import render_page_shell
+
+    if not token or not verify_reset_token(token):
+        body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title">Lien invalide</div>
+    <p style="color:var(--text-dim);">Ce lien de reinitialisation est invalide ou a expire.</p>
+    <p style="margin-top:20px;"><a href="/auth/forgot-password" style="font-weight:600;">Demander un nouveau lien</a></p>
+  </div>
+  </div>
+"""
+        return render_page_shell("Lien invalide", body)
+
+    body = f"""
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
+    <div class="auth-title">Nouveau mot de passe</div>
+    <div class="auth-subtitle">Choisissez un nouveau mot de passe</div>
+    <form method="POST" action="/auth/reset-password">
+      <input type="hidden" name="token" value="{token}">
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nouveau mot de passe</label>
+        <input type="password" name="password" required placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Reinitialiser →</button>
+    </form>
+  </div>
+  </div>
+"""
+    return render_page_shell("Nouveau mot de passe", body)
+
+
+@app.post("/auth/reset-password")
+async def reset_password(request: Request):
+    """
+    Verifie le token et met a jour le mot de passe
+    """
+    form = await request.form()
+    token = form.get("token")
+    password = form.get("password")
+
+    user_id = verify_reset_token(token)
+    if not user_id:
+        return render_error_page("Token invalide ou expire. Veuillez demander un nouveau lien.", "/auth/forgot-password")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        user.password_hash = hash_password(password)
+        db.commit()
+    finally:
+        db.close()
+
+    consume_reset_token(token)
+    return RedirectResponse("/auth/user-login", status_code=303)
+
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     """
@@ -716,11 +713,13 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     from app.dashboard import get_all_reports, filter_reports_by_repo, calculate_dashboard_stats, generate_dashboard_html
 
     all_reports = get_all_reports()
+    current_user_email = None
 
     # Si un utilisateur est connecte, filtrer sur SES repos uniquement
     if auth_token:
         payload = decode_access_token(auth_token)
         if payload:
+            current_user_email = payload.get("username") or payload.get("email")
             db = SessionLocal()
             try:
                 user_id = payload["user_id"]
@@ -736,9 +735,12 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
 
     filtered_reports = filter_reports_by_repo(all_reports, repo)
     stats = calculate_dashboard_stats(filtered_reports)
-    html = generate_dashboard_html(stats, filtered_reports, repo)
-    return html
+    html = generate_dashboard_html(stats, filtered_reports, repo, current_user_email)
 
+    response = HTMLResponse(content=html)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 @app.get("/dashboard/pr/{pr_number}", response_class=HTMLResponse)
 async def dashboard_pr_detail(pr_number: int, repo: str = None):

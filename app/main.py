@@ -180,6 +180,27 @@ def render_error_page(message: str, back_link: str = "/auth/user-login") -> HTML
 """
     return HTMLResponse(content=render_page_shell("Erreur", body))
 
+async def get_github_profile(github_username: str) -> dict:
+    """
+    Recupere les infos publiques d'un profil GitHub (sans authentification)
+    """
+    if not github_username:
+        return None
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"https://api.github.com/users/{github_username}")
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "avatar_url": data.get("avatar_url"),
+                    "name": data.get("name") or github_username,
+                    "bio": data.get("bio"),
+                    "public_repos": data.get("public_repos", 0)
+                }
+    except Exception:
+        pass
+    return None    
+
 @app.get("/auth/register", response_class=HTMLResponse)
 async def register_page():
     """
@@ -251,19 +272,19 @@ async def register_page():
     from app.dashboard import render_page_shell
 
     body = """
-  <div class="topbar" style="justify-content:flex-end;">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Agent IA de Revue de Code</h1></div>
+    </div>
     <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
       <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-      <span id="themeLabel">Mode nuit</span>
     </div>
   </div>
   <div class="auth-page">
   <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
-    <div class="auth-brand">
-      <div class="brand-mark">AI</div>
-      <span>Agent Revue de Code</span>
-    </div>
     <div class="auth-title">Créer un compte</div>
+    <div class="auth-subtitle">Rejoignez Smartovate LTD en quelques secondes</div>
     <form method="POST" action="/auth/register">
       <div style="margin-bottom:18px;">
         <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur</label>
@@ -387,18 +408,17 @@ async def user_login_page():
     from app.dashboard import render_page_shell
 
     body = """
-  <div class="topbar" style="justify-content:flex-end;">
+ <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Agent IA de Revue de Code</h1></div>
+    </div>
     <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
       <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-      <span id="themeLabel">Mode nuit</span>
     </div>
   </div>
   <div class="auth-page">
   <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
-    <div class="auth-brand">
-      <div class="brand-mark">AI</div>
-      <span>Agent Revue de Code</span>
-    </div>
     <div class="auth-title">Bon retour</div>
     <form method="POST" action="/auth/user-login">
       <div style="margin-bottom:18px;">
@@ -475,10 +495,13 @@ async def my_repos_page(auth_token: str = Cookie(None)):
         rows = '<tr><td colspan="2"><div class="empty-state">Aucun repository ajoute pour le moment.</div></td></tr>'
 
     body = f"""
-  <div class="topbar" style="justify-content:flex-end;">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Agent IA de Revue de Code</h1></div>
+    </div>
     <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
       <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-      <span id="themeLabel">Mode nuit</span>
     </div>
   </div>
 
@@ -581,10 +604,13 @@ async def forgot_password_page():
     from app.dashboard import render_page_shell
 
     body = """
-  <div class="topbar" style="justify-content:flex-end;">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Agent IA de Revue de Code</h1></div>
+    </div>
     <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
       <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-      <span id="themeLabel">Mode nuit</span>
     </div>
   </div>
   <div class="auth-page">
@@ -703,6 +729,138 @@ async def reset_password(request: Request):
 
     consume_reset_token(token)
     return RedirectResponse("/auth/user-login", status_code=303)
+
+@app.get("/account/settings", response_class=HTMLResponse)
+async def account_settings_page(auth_token: str = Cookie(None)):
+    """
+    Page de parametres du compte utilisateur
+    """
+    if not auth_token:
+        return RedirectResponse("/auth/user-login")
+
+    payload = decode_access_token(auth_token)
+    if not payload:
+        return RedirectResponse("/auth/user-login")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == payload["user_id"]).first()
+        if not user:
+            return RedirectResponse("/auth/user-login")
+
+        current_username = user.username or ""
+        current_email = user.email
+        current_github = user.github_username or ""
+    finally:
+        db.close()
+
+    from app.dashboard import render_page_shell
+
+    body = f"""
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">AI</div>
+      <div class="brand-text"><h1>Agent IA de Revue de Code</h1></div>
+    </div>
+    <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
+      <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+    </div>
+  </div>
+
+  <a class="back-link" href="/dashboard">← Retour au dashboard</a>
+
+  <div class="panel" style="max-width:500px; margin: 24px auto;">
+    <div class="panel-head"><div class="panel-title">Paramètres du compte</div></div>
+    <form method="POST" action="/account/settings">
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur</label>
+        <input type="text" name="username" value="{current_username}" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Email</label>
+        <input type="email" name="email" value="{current_email}" required style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur GitHub</label>
+        <input type="text" name="github_username" value="{current_github}" placeholder="mohamedbadishajji" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <hr style="border-color:var(--grid-line); margin:20px 0;">
+      <div style="margin-bottom:16px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Ancien mot de passe (requis pour changer le mot de passe)</label>
+        <input type="password" name="current_password" placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:24px;">
+        <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nouveau mot de passe (laisser vide pour ne pas changer)</label>
+        <input type="password" name="new_password" placeholder="••••••••" style="width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--grid-line); background:var(--bg-panel-2); color:var(--text); font-size:14px; box-sizing:border-box;">
+      </div>
+      <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Enregistrer les modifications</button>
+    </form>
+  </div>
+"""
+    return render_page_shell("Paramètres du compte", body)
+
+@app.post("/account/settings")
+async def update_account_settings(request: Request, auth_token: str = Cookie(None)):
+    """
+    Met a jour les parametres du compte utilisateur
+    """
+    if not auth_token:
+        return RedirectResponse("/auth/user-login")
+
+    payload = decode_access_token(auth_token)
+    if not payload:
+        return RedirectResponse("/auth/user-login")
+
+    form = await request.form()
+    new_username = form.get("username", "").strip()
+    new_email = form.get("email", "").strip()
+    new_github_username = form.get("github_username", "").strip()
+    current_password = form.get("current_password", "")
+    new_password = form.get("new_password", "")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == payload["user_id"]).first()
+        if not user:
+            return render_error_page("Utilisateur introuvable", "/auth/user-login")
+
+        # Verifier que le nouvel email n'est pas deja utilise par un AUTRE compte
+        if new_email != user.email:
+            existing = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+            if existing:
+                return render_error_page("Cet email est deja utilise par un autre compte", "/account/settings")
+
+        # Changement de mot de passe (uniquement si demande)
+        if new_password:
+            if not current_password or not verify_password(current_password, user.password_hash):
+                return render_error_page("Ancien mot de passe incorrect", "/account/settings")
+            user.password_hash = hash_password(new_password)
+
+        user.username = new_username
+        user.email = new_email
+        user.github_username = new_github_username
+
+        db.commit()
+
+        # Regenerer le token avec les nouvelles infos
+        new_token = create_access_token(user.id, user.email, user.username)
+    finally:
+        db.close()
+
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title" style="color:var(--accent);">✅ Modifications enregistrées</div>
+    <p style="color:var(--text-dim);">Vos informations de compte ont été mises à jour avec succès.</p>
+    <p style="margin-top:20px;"><a href="/dashboard" style="font-weight:600;">→ Retour au dashboard</a></p>
+  </div>
+  </div>
+"""
+    response = HTMLResponse(content=render_page_shell("Modifications enregistrées", body))
+    response.set_cookie(key="auth_token", value=new_token, httponly=True, max_age=86400)
+    return response
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None, auth_token: str = Cookie(None)):

@@ -697,9 +697,7 @@ def risk_badge_class(risk_level: str) -> str:
     return mapping.get(risk_level, "medium")
 
 
-def generate_dashboard_html(
-    stats: dict, reports: list = None, selected_repo: str = None
-) -> str:
+def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: str = None, current_user_email: str = None) -> str:
     reports = reports or []
     repos = get_all_repos(reports)
     pr_list = get_pr_list(reports)
@@ -760,6 +758,7 @@ def generate_dashboard_html(
       </div>
     </div>
     <div class="header-actions">
+      {f'<div class="status-pill" style="color:var(--text);"><span class="pulse-dot"></span>{current_user_email}</div>' if current_user_email else ''}
       <div class="repo-select">
         <select id="repoSelect">{options}</select>
       </div>
@@ -768,6 +767,9 @@ def generate_dashboard_html(
       </a>
       <a href="/my-repos" class="theme-toggle" style="text-decoration:none;">
         <span>📁 Mes repositories</span>
+      </a>
+      <a href="/auth/logout" class="theme-toggle" style="text-decoration:none;">
+        <span>🚪 Déconnexion</span>
       </a>
       <div class="status-pill">
         <span class="pulse-dot"></span>

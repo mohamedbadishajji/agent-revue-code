@@ -585,7 +585,6 @@ def render_page_shell(title: str, body_content: str, extra_head: str = "") -> st
     const iconEl = document.getElementById('themeIcon');
     const labelEl = document.getElementById('themeLabel');
     if (iconEl) iconEl.innerHTML = theme === 'dark' ? ICONS.light : ICONS.dark;
-    if (labelEl) labelEl.textContent = theme === 'dark' ? 'Mode jour' : 'Mode nuit';
     localStorage.setItem('dashboard-theme', theme);
   }}
   const savedTheme = localStorage.getItem('dashboard-theme') || 'dark';
@@ -768,6 +767,9 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
       <a href="/my-repos" class="theme-toggle" style="text-decoration:none;">
         <span>📁 Mes repositories</span>
       </a>
+      <a href="/account/settings" class="theme-toggle" style="text-decoration:none;">
+        <span>⚙️ Paramètres</span>
+      </a>
       <a href="/auth/logout" class="theme-toggle" style="text-decoration:none;">
         <span>🚪 Déconnexion</span>
       </a>
@@ -777,7 +779,7 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
       </div>
       <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
         <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-        <span id="themeLabel">Mode nuit</span>
+        
       </div>
     </div>
   </div>
@@ -986,7 +988,7 @@ def generate_pr_detail_html(report: dict) -> str:
     <div class="header-actions">
       <div class="theme-toggle" id="themeToggle" role="button" aria-label="Changer de theme">
         <svg id="themeIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
-        <span id="themeLabel">Mode nuit</span>
+        
       </div>
     </div>
   </div>

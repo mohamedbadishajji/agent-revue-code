@@ -1,4 +1,4 @@
-#!C:\Users\user\AppData\Local\Python\pythoncore-3.14-64\python.exe
+#!/var/lang/bin/python3.11
 
 import sys
 import json
