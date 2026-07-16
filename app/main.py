@@ -331,6 +331,23 @@ async def list_repos(session_id: str = Cookie(None)):
 """
     return render_page_shell("Vos Repositories", body)
 
+def render_error_page(message: str, back_link: str = "/auth/user-login") -> HTMLResponse:
+    """
+    Genere une page d'erreur HTML propre au lieu d'un JSON brut
+    """
+    from app.dashboard import render_page_shell
+
+    body = f"""
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title" style="color:var(--red);">⚠️ Erreur</div>
+    <p style="color:var(--text-dim);">{message}</p>
+    <p style="margin-top:20px;"><a href="{back_link}" style="font-weight:600;">← Retour</a></p>
+  </div>
+  </div>
+"""
+    return HTMLResponse(content=render_page_shell("Erreur", body))
+
 @app.get("/auth/register", response_class=HTMLResponse)
 async def register_page():
     """
@@ -452,7 +469,7 @@ async def register(request: Request):
     try:
         existing = db.query(User).filter(User.email == email).first()
         if existing:
-            return {"error": "Cet email est deja utilise"}
+            return render_error_page("Cet email est deja utilise", "/auth/register")
 
         new_user = User(email=email, username=username, password_hash=hash_password(password))
         db.add(new_user)
@@ -586,7 +603,7 @@ async def user_login(request: Request):
     try:
         user = db.query(User).filter(User.email == email).first()
         if not user or not verify_password(password, user.password_hash):
-            return {"error": "Email ou mot de passe incorrect"}
+            return render_error_page("Email ou mot de passe incorrect", "/auth/user-login")
 
         token = create_access_token(user.id, user.email, user.username)
         redirect = RedirectResponse("/dashboard", status_code=303)
@@ -674,7 +691,7 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
     repo_full_name = form.get("repo_full_name", "").strip()
 
     if not repo_full_name or "/" not in repo_full_name:
-        return {"error": "Format invalide. Utilisez: owner/repo"}
+        return render_error_page("Format invalide. Utilisez: owner/repo", "/my-repos")
 
     # Verification technique : ce repo appartient-il vraiment a l'installation
     # de la GitHub App ? (methode fiable, deja testee avec succes)
@@ -696,16 +713,16 @@ async def add_my_repo(request: Request, auth_token: str = Cookie(None)):
             )
 
         if check_response.status_code != 200:
-            return {"error": f"Ce repository n'est pas accessible ou l'agent n'y est pas installe. Installez d'abord l'app via le bouton du dashboard."}
+            return render_error_page("Ce repository n'est pas accessible ou l'agent n'y est pas installe. Installez d'abord l'app via le bouton du dashboard.", "/my-repos")
 
     except Exception as e:
-        return {"error": f"Erreur de verification : {str(e)}"}
+        return render_error_page(f"Erreur de verification : {str(e)}", "/my-repos")
 
     db = SessionLocal()
     try:
         existing = db.query(UserRepo).filter(UserRepo.repo_full_name == repo_full_name).first()
         if existing:
-            return {"error": "Ce repository est deja associe a un compte"}
+            return render_error_page("Ce repository est deja associe a un compte", "/my-repos")
 
         new_repo = UserRepo(repo_full_name=repo_full_name, owner_user_id=payload["user_id"])
         db.add(new_repo)
@@ -842,7 +859,7 @@ async def reset_password(request: Request):
 
     user_id = verify_reset_token(token)
     if not user_id:
-        return {"error": "Token invalide ou expire"}
+        return render_error_page("Token invalide ou expire. Veuillez demander un nouveau lien.", "/auth/forgot-password")
 
     db = SessionLocal()
     try:
