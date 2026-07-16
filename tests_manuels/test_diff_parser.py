@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.diff_parser import extract_diff, parse_diff, chunk_diff
 
 print("=== Test REVUE-4 : Extraction et parsing du diff ===\n")

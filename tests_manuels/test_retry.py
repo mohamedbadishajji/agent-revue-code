@@ -1,4 +1,7 @@
 import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
 sys.stdout.reconfigure(line_buffering=True)
 from app.main import process_pull_request_with_retry
 

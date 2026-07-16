@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.llm_client import invoke_llm
 
 print("=== Test REVUE-32 : Connexion AWS Bedrock ===\n")

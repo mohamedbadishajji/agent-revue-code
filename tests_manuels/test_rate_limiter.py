@@ -1,4 +1,7 @@
 import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
 sys.stdout.reconfigure(line_buffering=True)
 from app.rate_limiter import retry_with_backoff, check_rate_limit, batch_post_comments
 from app.github_client import get_github_client
