@@ -323,6 +323,56 @@ def render_page_shell(title: str, body_content: str, extra_head: str = "") -> st
     pointer-events: none;
   }}
   .page {{ position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; }}
+  .layout-with-sidebar {{
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }}
+  .sidebar {{
+    width: 220px;
+    flex-shrink: 0;
+    background: rgba(var(--bg-panel-rgb),0.55);
+    backdrop-filter: var(--panel-blur);
+    -webkit-backdrop-filter: var(--panel-blur);
+    border-radius: 16px;
+    padding: 16px 12px;
+    position: sticky;
+    top: 20px;
+  }}
+  .sidebar-title {{
+    font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--text-dim); padding: 8px 12px 12px;
+  }}
+  .sidebar-link {{
+    display: block;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-family: var(--mono); font-size: 12.5px;
+    color: var(--text);
+    text-decoration: none;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.15s ease;
+  }}
+  .sidebar-link:hover {{
+    background: rgba(var(--accent-rgb),0.08);
+    text-decoration: none;
+  }}
+  .sidebar-link.active {{
+    background: var(--accent);
+    color: #06090c;
+    font-weight: 700;
+  }}
+  .main-content {{
+    flex: 1;
+    min-width: 0;
+  }}
+  @media (max-width: 900px) {{
+    .layout-with-sidebar {{ flex-direction: column; }}
+    .sidebar {{ width: 100%; position: static; }}
+  }}
 
   a {{ color: var(--accent); text-decoration: none; }}
   a:hover {{ text-decoration: underline; }}
@@ -696,9 +746,9 @@ def risk_badge_class(risk_level: str) -> str:
     return mapping.get(risk_level, "medium")
 
 
-def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: str = None, current_user_email: str = None) -> str:
+def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: str = None, current_user_email: str = None, all_repos_list: list = None) -> str:
     reports = reports or []
-    repos = get_all_repos(reports)
+    repos = all_repos_list if all_repos_list is not None else get_all_repos(reports)
     pr_list = get_pr_list(reports)
 
     score_labels = json.dumps([f"PR #{h['pr_number']}" for h in stats["score_history"]])
@@ -723,12 +773,13 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
     if not worst_files_rows:
         worst_files_rows = '<div class="empty-state">Aucune donnée — lancez votre première analyse.</div>'
 
-    # Selecteur de repo
+    # Construction de la sidebar (liste des repos, toujours visible)
     current = selected_repo or "all"
-    options = f'<option value="all" {"selected" if current == "all" else ""}>Tous les repos</option>'
+    sidebar_links = f'<a href="/dashboard" class="sidebar-link {"active" if current == "all" else ""}">📊 Tous les repos</a>'
     for repo in repos:
-        sel = "selected" if repo == current else ""
-        options += f'<option value="{repo}" {sel}>{repo}</option>'
+        active_class = "active" if repo == current else ""
+        short_name = repo.split("/")[-1] if "/" in repo else repo
+        sidebar_links += f'<a href="/dashboard?repo={repo}" class="sidebar-link {active_class}" title="{repo}">📁 {short_name}</a>'
 
     # Tableau des PRs analysees
     pr_rows = ""
@@ -758,9 +809,6 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
     </div>
     <div class="header-actions">
       {f'<div class="status-pill" style="color:var(--text);"><span class="pulse-dot"></span>{current_user_email}</div>' if current_user_email else ''}
-      <div class="repo-select">
-        <select id="repoSelect">{options}</select>
-      </div>
       <a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="theme-toggle" style="text-decoration:none;">
         <span>+ Ajouter un repository</span>
       </a>
@@ -783,6 +831,13 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
       </div>
     </div>
   </div>
+
+  <div class="layout-with-sidebar">
+    <div class="sidebar">
+      <div class="sidebar-title">Repositories</div>
+      {sidebar_links}
+    </div>
+    <div class="main-content">
 
   <div class="kpi-strip">
     <div class="kpi">
@@ -844,6 +899,9 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
       </tr>
       {pr_rows}
     </table>
+  </div>
+
+    </div>
   </div>
 
 <script>

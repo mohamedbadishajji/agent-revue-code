@@ -891,9 +891,12 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
             finally:
                 db.close()
 
+    from app.dashboard import get_all_repos
+    complete_repos_list = get_all_repos(all_reports)
+
     filtered_reports = filter_reports_by_repo(all_reports, repo)
     stats = calculate_dashboard_stats(filtered_reports)
-    html = generate_dashboard_html(stats, filtered_reports, repo, current_user_email)
+    html = generate_dashboard_html(stats, filtered_reports, repo, current_user_email, complete_repos_list)
 
     response = HTMLResponse(content=html)
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
