@@ -937,7 +937,10 @@ async def github_oauth_callback(code: str = None):
 
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.email == github_email).first()
+        # Chercher D'ABORD par github_username (stable), puis par email (fallback)
+        user = db.query(User).filter(User.github_username == github_username).first()
+        if not user:
+            user = db.query(User).filter(User.email == github_email).first()
 
         if not user:
             # Creation automatique d'un nouveau compte (pas de mot de passe classique)
