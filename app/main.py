@@ -431,6 +431,15 @@ async def user_login_page():
       </div>
       <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Se connecter →</button>
     </form>
+    <div style="display:flex; align-items:center; gap:12px; margin:20px 0;">
+      <div style="flex:1; height:1px; background:var(--grid-line);"></div>
+      <span style="font-size:12px; color:var(--text-dim);">OU</span>
+      <div style="flex:1; height:1px; background:var(--grid-line);"></div>
+    </div>
+    <a href="/auth/github/login" style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:13px; border-radius:10px; font-size:14px; font-weight:600; background:#24292e; color:white; text-decoration:none; box-sizing:border-box;">
+      <svg height="20" width="20" viewBox="0 0 16 16" fill="white"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Se connecter avec GitHub
+    </a>
     <p style="margin-top:12px; text-align:center; font-size:13px;">
       <a href="/auth/forgot-password" style="color:var(--text-dim);">Mot de passe oublié ?</a>
     </p>
@@ -861,6 +870,99 @@ async def update_account_settings(request: Request, auth_token: str = Cookie(Non
     response = HTMLResponse(content=render_page_shell("Modifications enregistrées", body))
     response.set_cookie(key="auth_token", value=new_token, httponly=True, max_age=86400)
     return response
+
+@app.get("/auth/github/login")
+async def github_oauth_login():
+    """
+    Redirige vers GitHub pour connexion OAuth
+    Utilise uniquement l'identite de base (pas de scope special)
+    """
+    github_auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={OAUTH_CLIENT_ID}"
+        f"&redirect_uri={OAUTH_REDIRECT_URI.replace('/auth/callback', '/auth/github/callback')}"
+    )
+    return RedirectResponse(github_auth_url)
+
+
+@app.get("/auth/github/callback")
+async def github_oauth_callback(code: str = None):
+    """
+    Recoit le retour de GitHub, recupere l'identite de l'utilisateur,
+    puis connecte ou cree automatiquement un compte
+    """
+    if not code:
+        return render_error_page("Code manquant", "/auth/user-login")
+
+    async with httpx.AsyncClient() as client:
+        # Echange le code contre un token
+        token_response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            headers={"Accept": "application/json"},
+            data={
+                "client_id": OAUTH_CLIENT_ID,
+                "client_secret": OAUTH_CLIENT_SECRET,
+                "code": code,
+            },
+        )
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+
+        if not access_token:
+            return render_error_page("Impossible de se connecter via GitHub", "/auth/user-login")
+
+        # Recupere l'identite de l'utilisateur (info de base uniquement)
+        user_response = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+        )
+        github_data = user_response.json()
+        github_username = github_data.get("login")
+        github_name = github_data.get("name") or github_username
+        github_email = github_data.get("email")
+
+        # Si l'email n'est pas public, on en recupere un via l'endpoint dedie
+        if not github_email:
+            emails_response = await client.get(
+                "https://api.github.com/user/emails",
+                headers={"Authorization": f"Bearer {access_token}", "Accept": "application/vnd.github+json"},
+            )
+            emails_data = emails_response.json()
+            if isinstance(emails_data, list):
+                primary = next((e for e in emails_data if e.get("primary")), None)
+                github_email = primary["email"] if primary else None
+
+    if not github_email:
+        return render_error_page("Impossible de recuperer votre email GitHub. Assurez-vous qu'il est accessible.", "/auth/user-login")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == github_email).first()
+
+        if not user:
+            # Creation automatique d'un nouveau compte (pas de mot de passe classique)
+            random_password = py_secrets.token_urlsafe(32)
+            user = User(
+                email=github_email,
+                username=github_name,
+                github_username=github_username,
+                password_hash=hash_password(random_password)
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        elif not user.github_username:
+            # Lie le compte GitHub a un compte existant avec le meme email
+            user.github_username = github_username
+            db.commit()
+
+        token = create_access_token(user.id, user.email, user.username)
+    finally:
+        db.close()
+
+    redirect = RedirectResponse("/dashboard", status_code=303)
+    redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
+    return redirect
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
