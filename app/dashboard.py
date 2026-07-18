@@ -809,7 +809,6 @@ def generate_dashboard_html(stats: dict, reports: list = None, selected_repo: st
     </div>
     <div class="header-actions">
       {f'<div class="status-pill" style="color:var(--text);"><span class="pulse-dot"></span>{current_user_email}</div>' if current_user_email else ''}
-      {f'<a href="/auth/user-login" class="theme-toggle" style="text-decoration:none;"><span>🔐 Se connecter</span></a>' if not current_user_email else ''}
       <a href="https://github.com/apps/agent-revue-code/installations/new" target="_blank" class="theme-toggle" style="text-decoration:none;">
         <span>+ Ajouter un repository</span>
       </a>
