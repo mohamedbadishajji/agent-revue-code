@@ -978,7 +978,6 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
     all_reports = get_all_reports()
     current_user_email = None
 
-    # Si un utilisateur est connecte, filtrer sur SES repos uniquement
     if auth_token:
         payload = decode_access_token(auth_token)
         if payload:
@@ -995,6 +994,9 @@ async def dashboard(repo: str = None, auth_token: str = Cookie(None)):
                     all_reports = []
             finally:
                 db.close()
+    else:
+        # Visiteur non connecte : dashboard vide, seuls les comptes voient leurs PRs
+        all_reports = []
 
     from app.dashboard import get_all_repos
     complete_repos_list = get_all_repos(all_reports)
