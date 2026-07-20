@@ -49,8 +49,8 @@ if ($Target -eq "all" -or $Target -eq "lambda") {
     if (Test-Path package) { Remove-Item -Recurse -Force package }
     if (Test-Path lambda_package.zip) { Remove-Item -Force lambda_package.zip }
 
-    Write-Host "   Installation des dépendances..."
-    pip install -r requirements.txt --target ./package --quiet
+    Write-Host "   Installation des dépendances (version allegee pour Lambda)..."
+pip install -r requirements-lambda.txt --target ./package --quiet
 
     Write-Host "   Copie du code..."
     Copy-Item -Recurse app package/app

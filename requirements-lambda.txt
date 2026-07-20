@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pygithub
+python-dotenv
+requests
+mangum
+pyyaml
+boto3
+azure-storage-blob
+httpx

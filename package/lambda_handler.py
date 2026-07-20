@@ -1,5 +1,4 @@
 from mangum import Mangum
-from app.main import app
+from app.main_lambda import app
 
-# Adaptateur AWS Lambda pour FastAPI
 handler = Mangum(app, lifespan="off")
