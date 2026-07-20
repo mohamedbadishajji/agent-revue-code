@@ -284,7 +284,6 @@ async def register_page():
   <div class="auth-page">
   <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px;">
     <div class="auth-title">Créer un compte</div>
-    <div class="auth-subtitle">Rejoignez Smartovate LTD en quelques secondes</div>
     <form method="POST" action="/auth/register">
       <div style="margin-bottom:18px;">
         <label style="display:block; margin-bottom:6px; font-size:13px; font-weight:600; color:var(--text-dim);">Nom d'utilisateur</label>
