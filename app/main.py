@@ -304,7 +304,7 @@ async def register_page():
       <span style="font-size:12px; color:var(--text-dim);">OU</span>
       <div style="flex:1; height:1px; background:var(--grid-line);"></div>
     </div>
-    <a href="/auth/github/login" style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:13px; border-radius:10px; font-size:14px; font-weight:600; background:#24292e; color:white; text-decoration:none; box-sizing:border-box;">
+    <a href="/auth/github/login?source=register" style="display:flex; align-items:center; justify-content:center; gap:10px; width:100%; padding:13px; border-radius:10px; font-size:14px; font-weight:600; background:#24292e; color:white; text-decoration:none; box-sizing:border-box;">
       <svg height="20" width="20" viewBox="0 0 16 16" fill="white"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
       S'inscrire avec GitHub
     </a>
@@ -880,21 +880,22 @@ async def update_account_settings(request: Request, auth_token: str = Cookie(Non
     return response
 
 @app.get("/auth/github/login")
-async def github_oauth_login():
+async def github_oauth_login(source: str = "login"):
     """
     Redirige vers GitHub pour connexion OAuth
-    Utilise uniquement l'identite de base (pas de scope special)
+    Le parametre 'source' indique si on vient de /register ou /login
     """
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={OAUTH_CLIENT_ID}"
         f"&redirect_uri={OAUTH_REDIRECT_URI.replace('/auth/callback', '/auth/github/callback')}"
+        f"&state={source}"
     )
     return RedirectResponse(github_auth_url)
 
 
 @app.get("/auth/github/callback")
-async def github_oauth_callback(code: str = None):
+async def github_oauth_callback(code: str = None, state: str = None):
     """
     Recoit le retour de GitHub, recupere l'identite de l'utilisateur,
     puis connecte ou cree automatiquement un compte
@@ -945,10 +946,17 @@ async def github_oauth_callback(code: str = None):
 
     db = SessionLocal()
     try:
-        # Chercher D'ABORD par github_username (stable), puis par email (fallback)
         user = db.query(User).filter(User.github_username == github_username).first()
         if not user:
             user = db.query(User).filter(User.email == github_email).first()
+
+        # Si on vient de la page d'inscription ET qu'un compte existe deja
+        if state == "register" and user:
+            db.close()
+            return render_error_page(
+                "Un compte existe déjà avec ce profil GitHub. Veuillez vous connecter à la place.",
+                "/auth/user-login"
+            )
 
         if not user:
             # Creation automatique d'un nouveau compte (pas de mot de passe classique)
