@@ -128,3 +128,71 @@ def send_reset_email(to_email: str, reset_link: str) -> bool:
     except Exception as e:
         print(f"Erreur envoi email : {str(e)}")
         return False
+
+# Stockage temporaire des tokens de verification d'email (en memoire)
+email_verification_tokens = {}
+
+
+def generate_email_verification_token(user_id: int) -> str:
+    """
+    Genere un token unique pour la verification d'email
+    """
+    token = py_secrets.token_urlsafe(32)
+    expire = datetime.utcnow() + timedelta(hours=24)
+    email_verification_tokens[token] = {"user_id": user_id, "expires": expire}
+    return token
+
+
+def verify_email_token(token: str) -> int:
+    """
+    Verifie qu'un token de confirmation d'email est valide et non expire
+    Retourne le user_id associe, ou None si invalide
+    """
+    data = email_verification_tokens.get(token)
+    if not data:
+        return None
+    if datetime.utcnow() > data["expires"]:
+        del email_verification_tokens[token]
+        return None
+    return data["user_id"]
+
+
+def consume_email_verification_token(token: str):
+    """
+    Supprime un token apres utilisation (usage unique)
+    """
+    if token in email_verification_tokens:
+        del email_verification_tokens[token]
+
+
+def send_verification_email(to_email: str, verification_link: str) -> bool:
+    """
+    Envoie un email de confirmation d'inscription via Azure Communication Services
+    """
+    try:
+        client = EmailClient.from_connection_string(EMAIL_CONNECTION_STRING)
+
+        message = {
+            "senderAddress": EMAIL_SENDER,
+            "recipients": {
+                "to": [{"address": to_email}]
+            },
+            "content": {
+                "subject": "Confirmez votre compte - Agent Revue de Code",
+                "html": f"""
+                <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto;">
+                    <h2 style="color: #2B5797;">Bienvenue !</h2>
+                    <p>Merci de vous être inscrit. Confirmez votre adresse email pour activer votre compte :</p>
+                    <p><a href="{verification_link}" style="background: #2B5797; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block;">Confirmer mon email</a></p>
+                    <p style="color: #666; font-size: 13px;">Ce lien expire dans 24 heures.</p>
+                </div>
+                """
+            }
+        }
+
+        poller = client.begin_send(message)
+        result = poller.result()
+        return True
+    except Exception as e:
+        print(f"Erreur envoi email de verification : {str(e)}")
+        return False

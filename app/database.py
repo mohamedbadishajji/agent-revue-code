@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from datetime import datetime
 import os
@@ -31,6 +31,7 @@ class User(Base):
     username = Column(String(100), nullable=True)
     github_username = Column(String(100), nullable=True)
     password_hash = Column(String(255), nullable=False)
+    email_verified = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     repos = relationship("UserRepo", back_populates="owner")

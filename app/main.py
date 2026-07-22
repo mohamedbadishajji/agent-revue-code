@@ -8,7 +8,7 @@ import httpx
 import secrets as py_secrets
 from sqlalchemy.orm import Session
 from app.database import get_db, User, UserRepo, SessionLocal
-from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email
+from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email, generate_email_verification_token, verify_email_token, consume_email_verification_token, send_verification_email
 
 load_dotenv()
 
@@ -319,7 +319,8 @@ async def register_page():
 @app.post("/auth/register")
 async def register(request: Request):
     """
-    Cree un nouveau compte utilisateur
+    Cree un nouveau compte utilisateur (non verifie initialement)
+    Envoie un email de confirmation
     """
     form = await request.form()
     username = form.get("username")
@@ -332,18 +333,34 @@ async def register(request: Request):
         if existing:
             return render_error_page("Cet email est deja utilise", "/auth/register")
 
-        new_user = User(email=email, username=username, password_hash=hash_password(password))
+        new_user = User(
+            email=email,
+            username=username,
+            password_hash=hash_password(password),
+            email_verified=False
+        )
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
 
-        token = create_access_token(new_user.id, new_user.email, new_user.username)
-        redirect = RedirectResponse("/dashboard", status_code=303)
-        redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
-        return redirect
+        verification_token = generate_email_verification_token(new_user.id)
+        verification_link = f"https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/verify-email?token={verification_token}"
+        send_verification_email(new_user.email, verification_link)
     finally:
         db.close()
 
+    from app.dashboard import render_page_shell
+
+    body = """
+  <div class="auth-page">
+  <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
+    <div class="auth-title">📧 Vérifiez votre email</div>
+    <p style="color:var(--text-dim);">Un email de confirmation vient de vous être envoyé. Cliquez sur le lien reçu pour activer votre compte.</p>
+    <p style="margin-top:20px;"><a href="/auth/user-login" style="font-weight:600;">← Retour à la connexion</a></p>
+  </div>
+  </div>
+"""
+    return HTMLResponse(content=render_page_shell("Vérifiez votre email", body))
 
 @app.get("/auth/user-login", response_class=HTMLResponse)
 async def user_login_page():
@@ -463,6 +480,7 @@ async def user_login_page():
 async def user_login(request: Request):
     """
     Verifie les identifiants et connecte l'utilisateur
+    Bloque la connexion si l'email n'est pas encore verifie
     """
     form = await request.form()
     email = form.get("email")
@@ -474,13 +492,19 @@ async def user_login(request: Request):
         if not user or not verify_password(password, user.password_hash):
             return render_error_page("Email ou mot de passe incorrect", "/auth/user-login")
 
+        if not user.email_verified:
+            return render_error_page(
+                "Votre email n'est pas encore vérifié. Consultez votre boîte de réception pour activer votre compte.",
+                "/auth/user-login"
+            )
+
         token = create_access_token(user.id, user.email, user.username)
         redirect = RedirectResponse("/dashboard", status_code=303)
         redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
         return redirect
     finally:
         db.close()
-
+        
 @app.get("/my-repos", response_class=HTMLResponse)
 async def my_repos_page(auth_token: str = Cookie(None)):
     """
@@ -812,6 +836,9 @@ async def account_settings_page(auth_token: str = Cookie(None)):
       </div>
       <button type="submit" class="view-btn" style="width:100%; padding:13px; border-radius:10px; font-size:15px;">Enregistrer les modifications</button>
     </form>
+    <p style="margin-top:16px; text-align:center; font-size:13px;">
+      <a href="/auth/forgot-password" style="color:var(--text-dim);">Mot de passe oublié ?</a>
+    </p>
   </div>
 """
     return render_page_shell("Paramètres du compte", body)
@@ -965,7 +992,8 @@ async def github_oauth_callback(code: str = None, state: str = None):
                 email=github_email,
                 username=github_name,
                 github_username=github_username,
-                password_hash=hash_password(random_password)
+                password_hash=hash_password(random_password),
+                email_verified=True
             )
             db.add(user)
             db.commit()
@@ -981,6 +1009,37 @@ async def github_oauth_callback(code: str = None, state: str = None):
 
     redirect = RedirectResponse("/dashboard", status_code=303)
     redirect.set_cookie(key="auth_token", value=token, httponly=True, max_age=86400)
+    return redirect
+
+@app.get("/auth/verify-email")
+async def verify_email(token: str = None):
+    """
+    Verifie le token et active le compte de l'utilisateur
+    """
+    if not token:
+        return render_error_page("Lien de vérification invalide", "/auth/user-login")
+
+    user_id = verify_email_token(token)
+    if not user_id:
+        return render_error_page("Ce lien de vérification est invalide ou a expiré.", "/auth/register")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            return render_error_page("Utilisateur introuvable", "/auth/register")
+
+        user.email_verified = True
+        db.commit()
+
+        token_jwt = create_access_token(user.id, user.email, user.username)
+    finally:
+        db.close()
+
+    consume_email_verification_token(token)
+
+    redirect = RedirectResponse("/dashboard", status_code=303)
+    redirect.set_cookie(key="auth_token", value=token_jwt, httponly=True, max_age=86400)
     return redirect
 
 @app.get("/dashboard", response_class=HTMLResponse)
