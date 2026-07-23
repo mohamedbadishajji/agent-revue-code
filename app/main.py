@@ -8,7 +8,7 @@ import httpx
 import secrets as py_secrets
 from sqlalchemy.orm import Session
 from app.database import get_db, User, UserRepo, SessionLocal
-from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email, generate_email_verification_token, verify_email_token, consume_email_verification_token, send_verification_email
+from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token, generate_reset_token, verify_reset_token, consume_reset_token, send_reset_email, create_pending_registration, get_pending_registration, consume_pending_registration, send_verification_email
 
 load_dotenv()
 
@@ -319,8 +319,9 @@ async def register_page():
 @app.post("/auth/register")
 async def register(request: Request):
     """
-    Cree un nouveau compte utilisateur (non verifie initialement)
-    Envoie un email de confirmation
+    NE CREE PAS le compte immediatement
+    Stocke les infos temporairement et envoie un email de confirmation
+    Le compte n'est enregistre en base QUE lorsque l'email est confirme
     """
     form = await request.form()
     username = form.get("username")
@@ -332,22 +333,12 @@ async def register(request: Request):
         existing = db.query(User).filter(User.email == email).first()
         if existing:
             return render_error_page("Cet email est deja utilise", "/auth/register")
-
-        new_user = User(
-            email=email,
-            username=username,
-            password_hash=hash_password(password),
-            email_verified=False
-        )
-        db.add(new_user)
-        db.commit()
-        db.refresh(new_user)
-
-        verification_token = generate_email_verification_token(new_user.id)
-        verification_link = f"https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/verify-email?token={verification_token}"
-        send_verification_email(new_user.email, verification_link)
     finally:
         db.close()
+
+    pending_token = create_pending_registration(email, username, hash_password(password))
+    verification_link = f"https://agent-revue-app.mangocliff-bd24028f.eastus.azurecontainerapps.io/auth/verify-email?token={pending_token}"
+    send_verification_email(email, verification_link)
 
     from app.dashboard import render_page_shell
 
@@ -355,7 +346,7 @@ async def register(request: Request):
   <div class="auth-page">
   <div class="panel" style="max-width:420px; margin: 60px auto; padding: 40px 36px; text-align:center;">
     <div class="auth-title">📧 Vérifiez votre email</div>
-    <p style="color:var(--text-dim);">Un email de confirmation vient de vous être envoyé. Cliquez sur le lien reçu pour activer votre compte.</p>
+    <p style="color:var(--text-dim);">Un email de confirmation vient de vous être envoyé. Votre compte ne sera créé qu'après confirmation de votre adresse email.</p>
     <p style="margin-top:20px;"><a href="/auth/user-login" style="font-weight:600;">← Retour à la connexion</a></p>
   </div>
   </div>
@@ -491,12 +482,6 @@ async def user_login(request: Request):
         user = db.query(User).filter(User.email == email).first()
         if not user or not verify_password(password, user.password_hash):
             return render_error_page("Email ou mot de passe incorrect", "/auth/user-login")
-
-        if not user.email_verified:
-            return render_error_page(
-                "Votre email n'est pas encore vérifié. Consultez votre boîte de réception pour activer votre compte.",
-                "/auth/user-login"
-            )
 
         token = create_access_token(user.id, user.email, user.username)
         redirect = RedirectResponse("/dashboard", status_code=303)
@@ -1014,29 +999,38 @@ async def github_oauth_callback(code: str = None, state: str = None):
 @app.get("/auth/verify-email")
 async def verify_email(token: str = None):
     """
-    Verifie le token et active le compte de l'utilisateur
+    Verifie le token et CREE REELLEMENT le compte en base de donnees
+    (le compte n'existait pas avant cette confirmation)
     """
     if not token:
         return render_error_page("Lien de vérification invalide", "/auth/user-login")
 
-    user_id = verify_email_token(token)
-    if not user_id:
-        return render_error_page("Ce lien de vérification est invalide ou a expiré.", "/auth/register")
+    pending = get_pending_registration(token)
+    if not pending:
+        return render_error_page("Ce lien de vérification est invalide ou a expiré. Veuillez vous réinscrire.", "/auth/register")
 
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return render_error_page("Utilisateur introuvable", "/auth/register")
+        # Double verification : email pas deja pris entre-temps
+        existing = db.query(User).filter(User.email == pending["email"]).first()
+        if existing:
+            return render_error_page("Cet email est deja utilise", "/auth/register")
 
-        user.email_verified = True
+        new_user = User(
+            email=pending["email"],
+            username=pending["username"],
+            password_hash=pending["password_hash"],
+            email_verified=True
+        )
+        db.add(new_user)
         db.commit()
+        db.refresh(new_user)
 
-        token_jwt = create_access_token(user.id, user.email, user.username)
+        token_jwt = create_access_token(new_user.id, new_user.email, new_user.username)
     finally:
         db.close()
 
-    consume_email_verification_token(token)
+    consume_pending_registration(token)
 
     redirect = RedirectResponse("/dashboard", status_code=303)
     redirect.set_cookie(key="auth_token", value=token_jwt, httponly=True, max_age=86400)

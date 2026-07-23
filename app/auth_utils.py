@@ -196,3 +196,43 @@ def send_verification_email(to_email: str, verification_link: str) -> bool:
     except Exception as e:
         print(f"Erreur envoi email de verification : {str(e)}")
         return False
+
+# Stockage temporaire des inscriptions EN ATTENTE de confirmation (en memoire)
+pending_registrations = {}
+
+
+def create_pending_registration(email: str, username: str, password_hash: str) -> str:
+    """
+    Stocke temporairement les infos d'inscription (PAS encore en base de donnees)
+    en attendant la confirmation de l'email
+    """
+    token = py_secrets.token_urlsafe(32)
+    expire = datetime.utcnow() + timedelta(hours=24)
+    pending_registrations[token] = {
+        "email": email,
+        "username": username,
+        "password_hash": password_hash,
+        "expires": expire
+    }
+    return token
+
+
+def get_pending_registration(token: str) -> dict:
+    """
+    Recupere les infos d'inscription en attente, ou None si invalide/expire
+    """
+    data = pending_registrations.get(token)
+    if not data:
+        return None
+    if datetime.utcnow() > data["expires"]:
+        del pending_registrations[token]
+        return None
+    return data
+
+
+def consume_pending_registration(token: str):
+    """
+    Supprime l'inscription en attente apres utilisation (usage unique)
+    """
+    if token in pending_registrations:
+        del pending_registrations[token]
